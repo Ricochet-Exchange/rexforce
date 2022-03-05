@@ -65,3 +65,64 @@ Captains and Specialist base pay is set to 100% APY on their stake. After deposi
 * The REX Force contract will be funded with a stream of RIC tokens from the REX DAO Treasury
 * RIC will accumulate in the contract
 * Accumulated RIC in the contract will serve as the budget for base pay and milestone/bounty payouts
+
+
+## Protocol Specifications
+
+### Structures
+* `Member` - used to track information about team members
+  * `address addr` - address of the team member
+  * `uint role` - 0 for no role, 1 for captain, 2 for specialist
+  * `bool active` - 1 if active and in good standing, 0 otherwise
+  * `uint dischargedAt` - the time a discharge was started
+  * `uint marks` - a counter used to track +1 and -1 marks from the Captain upon discharge
+
+* `Captain`
+* `Specialist`
+* `Milestone`
+* `Bounty`
+
+### Parameters
+`mapping (address => Member)`
+
+### Methods
+
+#### `startJoin(uint role)`
+* Parameters
+  * `uint role` - 1 for captian, 2 for speicalist
+* Pre-conditions
+  * Approved the contract to spend 10K/1K for captain/specialist bond
+  * Have 10K/1K tokens depending on which role your joining under
+
+#### `finishJoin(address member)`
+* Parameters
+  * `address member` the address of the team member to end the join process
+* Pre-conditions
+  *
+
+
+#### `mark(address member, bool positively)`
+* Parameters
+  * `address member` - the address of the team member to mark
+  * `bool positively` - true if this is a positive mark, false if its a negative mark
+* Pre-conditions
+  * The team member's dischargedAt is less than two weeks old (actively being discharge)  
+
+#### `startDischarge(address member)`
+* Parameters
+  * `address member` - the address of the team member to discharge
+* Pre-conditions
+  * `member` is a valid team member
+  * `dischargedAt` is not set
+* Post-conditions
+  * `dischargedAt` is set to the current time
+
+#### `finishDischarge(address member)`
+* Parameters
+  * `address member` - the address of the team member to discharge
+* Pre-conditions
+  * `dischargedAt` is more than 2 weeks ago
+* Post-conditions
+  * If `marks` > 0, then the team members 10k token stake is returned
+  * Member is marked as inactive (0)
+  * Member role is set to 0
