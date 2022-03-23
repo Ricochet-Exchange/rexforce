@@ -9,7 +9,7 @@ contract REXForce is AccessControlEnumerable {
     //
     // Responsibilities:
     // - Onboard new captains
-    // - Manage referrals and referred customers
+    // - 
 
     struct Captain {
         string name; // Full name of the captain
