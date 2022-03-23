@@ -116,17 +116,16 @@ contract REXForce is AccessControlEnumerable {
         activeCaptains++;
     }
 
-    // need only 1 function for resignation which only captains can call.
-    function resignCaptain(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(captainAddress) {
-        uint memory captainIndex = addressToCaptain[_captainAddr];
+    function resignCaptain() public onlyCaptain {
+        uint memory captainIndex = addressToCaptain[msg.sender];
         require(captains[captainIndex].resignVoteStarted == false, "Already in voting period");
 
-        
+        // Think about starting a vote @dxdy
 
     }
 
-    function endResignVote(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(captainAddress) {
-        uint memory captainIndex = addressToCaptain[captainAddress];
+    function endResignVote(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(_captainAddr) {
+        uint memory captainIndex = addressToCaptain[_captainAddr];
         require(captains[captainIndex].voteEndTimestamp < block.timestamp, "In voting period");
 
         // check the number of votes in struct
@@ -142,6 +141,27 @@ contract REXForce is AccessControlEnumerable {
         captains[captainIndex].approved = false;
         _revokeRole(CAPTAIN_ROLE, _captainAddr);
 
+        // Revoke NFT
+        // Cancel the base 10k RIC stream
+
     }
 
+    function disputeCaptain(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(_captainAddr) {
+        // Again think of voting @dxdy and start dispute vote
+
+        // Transfer 1k RIC
+         TransferHelper.safeTransferFrom(
+            address(ricAddress),
+            msg.sender,
+            address(this),
+            (10 ** 18) * 1000 // 1k RIC transfer
+        );
+    }
+
+    function disputeCaptain(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(_captainAddr) {
+        // if passed send back 1k RIC to dispute calling captain, 
+        // and safely revoke _captainAddr role, nft, cancel 
+        
+        // If failed do nothing, dispute called 1k RIC gone.
+    }
 }
