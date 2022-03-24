@@ -246,7 +246,7 @@ contract REXForce is AccessControlEnumerable {
         _revokeRole(CAPTAIN_ROLE, _captainAddr);
 
         // Revoke NFT
-        // Cancel the base 10k RIC stream
+        // Cancel the base 10k RIC stream 
 
     }
 
