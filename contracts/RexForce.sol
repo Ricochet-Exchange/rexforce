@@ -48,6 +48,8 @@ contract REXForce is AccessControlEnumerable {
     // Vote constants
     uint8 public constant VOTE_KIND_NONE = 0;
     uint8 public constant VOTE_KIND_ONBOARDING = 1;
+    uint8 public constant VOTE_KIND_RESIGN = 2;
+    uint8 public constant VOTE_KIND_DISPUTE = 3;
 
     // Contract variables
     IERC20 public ricAddress;
@@ -220,52 +222,117 @@ contract REXForce is AccessControlEnumerable {
         emit VoteCast(captainAddress, currentVote.kind, vote);
     }
 
-    function resignCaptain() public onlyCaptain {
-        uint memory captainIndex = addressToCaptain[msg.sender];
-        require(captains[captainIndex].resignVoteStarted == false, "Already in voting period");
+    function resignCaptain() public onlyCaptain voteInProgress(msg.sender) {
+        
+        uint256 time = block.timestamp;
+        _createVote(msg.sender, VOTE_KIND_RESIGN, time);
 
-        // Think about starting a vote @dxdy
-
+        emit VotingStarted(msg.sender, VOTE_KIND_RESIGN, time);
     }
 
-    function endResignVote(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(_captainAddr) {
-        uint memory captainIndex = addressToCaptain[_captainAddr];
-        require(captains[captainIndex].voteEndTimestamp < block.timestamp, "In voting period");
+    function endCaptainResignVote(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) {
+        uint captainIndex = addressToCaptain[_captainAddr];
+        Captain storage captain = captains[captainIndex];
+        Vote memory currentVote = captains[captainIndex].currentVote;
+        uint256 time = block.timestamp;
+        require(currentVote.kind == VOTE_KIND_RESIGN, "Invalid vote kind");
+        require(currentVote.start + votingDuration < time, "Voting duration not expired");
 
-        // check the number of votes in struct
+        uint256 qMul = captains.length * 2;
+        uint256 quorum = (qMul / 3);
+        // If quorum is not a whole number, take its ceiling
+        if (qMul % 3 > 0) {
+            quorum += 1;
+        }
+        uint256 approved = currentVote.forSum;
+        uint256 rejected = currentVote.againstSum;
+        require(approved + rejected >= quorum, "Not enough votes");
 
-        // if passed - transfer back RIC
-         TransferHelper.safeTransferFrom(
-            address(ricAddress),
-            address(this),
-            msg.sender,
-            (10 ** 18) * 10000 // 10k RIC transfer
-        );
+        bool passed = false;
 
-        captains[captainIndex].approved = false;
+        if (approved > rejected) {
+
+            TransferHelper.safeTransferFrom(
+                address(ricAddress),
+                address(this),
+                msg.sender,
+                (10 ** 18) * 10000 // 10k RIC transfer
+            );
+
+            addressToCaptain[_captainAddr] = 0; // If failed and approved != 0 means dishonorable resignation
+            passed = true;
+        } else {
+            passed = false;
+        }
+
         _revokeRole(CAPTAIN_ROLE, _captainAddr);
+        captain.approved = false;
+        stopRicStream(_captainAddr); // TODO: Stop RIC stream, revoke NFT
 
-        // Revoke NFT
-        // Cancel the base 10k RIC stream 
+        captain.votes.push(captain.currentVote);
+        _stopVote(_captainAddr);
 
+        emit votingEnded(captainAddress, VOTE_KIND_ONBOARDING, passed, time);
     }
 
-    function disputeCaptain(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(_captainAddr) {
-        // Again think of voting @dxdy and start dispute vote
-
+    function disputeCaptain(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) voteInProgress(_captainAddr) {
         // Transfer 1k RIC
-         TransferHelper.safeTransferFrom(
+        TransferHelper.safeTransferFrom(
             address(ricAddress),
             msg.sender,
             address(this),
             (10 ** 18) * 1000 // 1k RIC transfer
         );
+
+        uint256 time = block.timestamp;
+        _createVote(_captainAddr, VOTE_KIND_DISPUTE, time);
+
+        emit VotingStarted(msg.sender, VOTE_KIND_DISPUTE, time);
     }
 
-    function disputeCaptain(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) notZero(_captainAddr) {
-        // if passed send back 1k RIC to dispute calling captain, 
-        // and safely revoke _captainAddr role, nft, cancel 
-        
-        // If failed do nothing, dispute called 1k RIC gone.
+    function endCaptainDisputeVote(address _captainAddr) public onlyCaptain isCaptain(_captainAddr) {
+        uint captainIndex = addressToCaptain[_captainAddr];
+        Captain storage captain = captains[captainIndex];
+        Vote memory currentVote = captains[captainIndex].currentVote;
+        uint256 time = block.timestamp;
+        require(currentVote.kind == VOTE_KIND_DISPUTE, "Invalid vote kind");
+        require(currentVote.start + votingDuration < time, "Voting duration not expired");
+
+        uint256 qMul = captains.length * 2;
+        uint256 quorum = (qMul / 3);
+        // If quorum is not a whole number, take its ceiling
+        if (qMul % 3 > 0) {
+            quorum += 1;
+        }
+        uint256 approved = currentVote.forSum;
+        uint256 rejected = currentVote.againstSum;
+        require(approved + rejected >= quorum, "Not enough votes");
+
+        bool passed = false;
+
+        if (approved > rejected) {
+
+            TransferHelper.safeTransferFrom(
+                address(ricAddress),
+                msg.sender,
+                currentVote.proposer,
+                (10 ** 18) * 1000 // 1k RIC transfer to the proposer
+            );
+
+            addressToCaptain[_captainAddr] = 0; // If failed and approved != 0 means disputed captain
+            _revokeRole(CAPTAIN_ROLE, _captainAddr);
+            passed = true;
+        } else {
+            captain.approved = false;
+            passed = false;
+
+            stopRicStream(_captainAddr); // TODO: Stop RIC stream, revoke NFT
+        }
+
+        captain.votes.push(captain.currentVote);
+        _stopVote(_captainAddr);
+
+        emit votingEnded(captainAddress, VOTE_KIND_DISPUTE, passed, time);
     }
+
 }
