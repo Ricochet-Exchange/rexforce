@@ -192,9 +192,25 @@ contract REXForce is AccessControlEnumerable {
         return captain;
     }
 
-    function _getCurrentVote(address captainAddress) internal returns (Vote storage vote) {
+    function _getCurrentVote(address captainAddress) internal view returns (Vote storage vote) {
         Captain storage captain = _getCaptain(captainAddress);
         return voteIdToVote[captain.votes.length - 1];
+    }
+
+    function _isVotePassed(Vote storage currentVote) internal view returns (bool) {
+        uint256 qMul = captains.length * 2;
+        uint256 quorum = (qMul / 3);
+        // If quorum is not a whole number, take its ceiling
+        if (qMul % 3 > 0) {
+            quorum += 1;
+        }
+
+        require(currentVote.forSum + currentVote.againstSum >= quorum, "Not enough votes");
+
+        if (currentVote.forSum > currentVote.againstSum)
+            return true;
+
+        return false;
     }
 
     // Apply for captain
@@ -229,23 +245,13 @@ contract REXForce is AccessControlEnumerable {
         require(currentVote.kind == VOTE_KIND_ONBOARDING, "Invalid vote kind");
         require(currentVote.start + votingDuration < time, "Voting duration not expired");
 
-        uint256 quorum = ((captains.length * 2) / 3);
-        // If quorum is not a whole number, take its ceiling
-        if ((captains.length * 2) % 3 > 0) {
-            quorum += 1;
-        }
-        uint256 approved = currentVote.forSum;
-        uint256 rejected = currentVote.againstSum;
-        require(approved + rejected >= quorum, "Not enough votes");
+        bool passed = _isVotePassed(currentVote);
 
-        bool passed = false;
-
-        if (approved > rejected) {
+        if (passed) {
             // if vote passed - increase activeCaptains and start RIC stream.
             _grantRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = true;
             // startRicStream(captainAddress); // TODO: Start RIC stream, tansfer NFT
-            passed = true;
         } else {
             // if vote failed - transfer back RIC
             ricAddress.safeTransfer(
@@ -294,20 +300,9 @@ contract REXForce is AccessControlEnumerable {
         require(currentVote.kind == VOTE_KIND_RESIGN, "Invalid vote kind");
         require(currentVote.start + votingDuration < time, "Voting duration not expired");
         
-        // TODO - move this to a function
-        uint256 qMul = captains.length * 2;
-        uint256 quorum = (qMul / 3);
-        // If quorum is not a whole number, take its ceiling
-        if (qMul % 3 > 0) {
-            quorum += 1;
-        }
-        uint256 approved = currentVote.forSum;
-        uint256 rejected = currentVote.againstSum;
-        require(approved + rejected >= quorum, "Not enough votes");
+        bool passed = _isVotePassed(currentVote);
 
-        bool passed = false;
-
-        if (approved > rejected) {
+        if (passed) {
             // TODO - move this to a function
             ricAddress.safeTransfer(
                 captainAddress,
@@ -315,9 +310,6 @@ contract REXForce is AccessControlEnumerable {
             );
 
             addressToCaptain[captainAddress] = 0; // If failed and approved != 0 means dishonorable resignation
-            passed = true;
-        } else {
-            passed = false;
         }
 
         _revokeRole(CAPTAIN_ROLE, captainAddress);
@@ -351,20 +343,9 @@ contract REXForce is AccessControlEnumerable {
         require(currentVote.kind == VOTE_KIND_DISPUTE, "Invalid vote kind");
         require(currentVote.start + votingDuration < time, "Voting duration not expired");
 
-        // TODO - function
-        uint256 qMul = captains.length * 2;
-        uint256 quorum = (qMul / 3);
-        // If quorum is not a whole number, take its ceiling
-        if (qMul % 3 > 0) {
-            quorum += 1;
-        }
-        uint256 approved = currentVote.forSum;
-        uint256 rejected = currentVote.againstSum;
-        require(approved + rejected >= quorum, "Not enough votes");
+        bool passed = _isVotePassed(currentVote);
 
-        bool passed = false;
-
-        if (approved > rejected) {
+        if (passed) {
             // send 1k RIC to disputer
             ricAddress.safeTransferFrom(
                 msg.sender,
@@ -375,9 +356,6 @@ contract REXForce is AccessControlEnumerable {
             _revokeRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = false;
             // stopRicStream(captainAddress); // TODO: Stop RIC stream, revoke NFT
-            passed = true;
-        } else {
-            passed = false;
         }
 
         _stopVote(captainAddress);
