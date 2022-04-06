@@ -5,6 +5,9 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
+import "./tellor/ITellor.sol";
+import {SuperAppBase} from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
+import {ISuperfluid, ISuperToken, ISuperApp, ISuperAgreement, SuperAppDefinitions} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
 contract REXForce is AccessControlEnumerable {
     // REX Force Contract
@@ -37,6 +40,7 @@ contract REXForce is AccessControlEnumerable {
         string email; // TODO: Email address of captain ???? (Ask if we need this)
         uint[] votes; // Array of votes for the captain status
         bool voteInProgress; // Whether a vote is in progress
+        uint256 stakedAmount; // Amount of REX staked by the captain
     }
 
     struct Bounty {
@@ -49,6 +53,12 @@ contract REXForce is AccessControlEnumerable {
         bool payoutComplete; // Is payout complete?
         string ipfsHash; // Description of the bounty
         address[] approvals; // Number of votes for the bounty
+    }
+
+     struct OracleInfo {
+        uint256 requestId;
+        uint256 usdPrice;
+        uint256 lastUpdatedAt;
     }
 
     mapping(address => uint256) public addressToCaptain;
@@ -83,18 +93,30 @@ contract REXForce is AccessControlEnumerable {
 
     // Contract variables
     IERC20 public ricAddress;
+    ISuperfluid internal host; // Superfluid host contract
+    ITellor internal oracle; // Address of deployed simple oracle for input//output token
+    
     // TODO - Add function to modify this for admin
     uint256 public votingDuration = 14 days;
 
-    constructor(IERC20 ricAddressParam, string memory name, string memory email) {   
+    uint256 public captainAmountToStake = (10 ** 18) * 10000;
+
+    // Never modify this as we are not storing how much REX is staked for dispute
+    uint256 public disputeAmountToStake = (10 ** 18) * 1000;
+
+    uint256 public totalStakedAmount = 0;
+
+    constructor(IERC20 ricAddressParam, string memory name, string memory email, ITellor _tellor) {  
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(CAPTAIN_ROLE, msg.sender);
-        captains.push(Captain("Genesis", false, address(0), "genisis@genesis", new uint256[](0), false));
+        captains.push(Captain("Genesis", false, address(0), "genisis@genesis", new uint256[](0), false, 0));
         // Deployer is the first captain (auto-approved) 
-        captains.push(Captain(name, true, msg.sender, email, new uint256[](0), false));
+        captains.push(Captain(name, true, msg.sender, email, new uint256[](0), false, 0));
         addressToCaptain[msg.sender] = captains.length - 1;
         ricAddress = ricAddressParam;
         nextVoteId = 1;
+
+        oracle = _tellor;
     }
 
     /// @dev Validate a captain
@@ -146,7 +168,7 @@ contract REXForce is AccessControlEnumerable {
 
     /// @dev Add a captain to the REXForce
     function _addCaptain(string memory name, string memory email, address addr) internal {
-        captains.push(Captain(name, false, addr, email, new uint256[](0), false));
+        captains.push(Captain(name, false, addr, email, new uint256[](0), false, captainAmountToStake));
         addressToCaptain[addr] = captains.length - 1;
     }
 
@@ -222,8 +244,9 @@ contract REXForce is AccessControlEnumerable {
         ricAddress.safeTransferFrom(
             msg.sender,
             address(this),
-            (10 ** 18) * 10000 // 10k RIC transfer
+            captainAmountToStake // RIC transfer for stake
         );
+        totalStakedAmount += captainAmountToStake;
 
         _addCaptain(name, email, msg.sender);
         uint256 time = block.timestamp;
@@ -256,9 +279,10 @@ contract REXForce is AccessControlEnumerable {
             // if vote failed - transfer back RIC
             ricAddress.safeTransfer(
                 captainAddress,
-                (10 ** 18) * 10000 // 10k RIC transfer
+                captainAmountToStake // Staked RIC return
             );
             addressToCaptain[captainAddress] = 0;
+            totalStakedAmount -= captainAmountToStake;
         }
         _stopVote(captainAddress);
 
@@ -306,11 +330,13 @@ contract REXForce is AccessControlEnumerable {
             // TODO - move this to a function
             ricAddress.safeTransfer(
                 captainAddress,
-                (10 ** 18) * 10000 // 10k RIC transfer
+                captain.stakedAmount // 10k RIC transfer
             );
 
             addressToCaptain[captainAddress] = 0; // If failed and approved != 0 means dishonorable resignation
         }
+
+        totalStakedAmount -= captain.stakedAmount;
 
         _revokeRole(CAPTAIN_ROLE, captainAddress);
         captain.approved = false;
@@ -327,7 +353,7 @@ contract REXForce is AccessControlEnumerable {
         ricAddress.safeTransferFrom(
             msg.sender,
             address(this),
-            (10 ** 18) * 1000 // 1k RIC transfer
+            disputeAmountToStake // 1k RIC transfer
         );
 
         uint256 time = block.timestamp;
@@ -350,7 +376,7 @@ contract REXForce is AccessControlEnumerable {
             ricAddress.safeTransferFrom(
                 msg.sender,
                 currentVote.proposer,
-                (10 ** 18) * 1000
+                disputeAmountToStake
             );
             // TODO - function
             _revokeRole(CAPTAIN_ROLE, captainAddress);
