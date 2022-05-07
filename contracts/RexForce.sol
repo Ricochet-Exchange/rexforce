@@ -7,14 +7,11 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
 import "./tellor/ITellor.sol";
 import {SuperAppBase} from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
+import {IConstantFlowAgreementV1} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import {ISuperfluid, ISuperToken, ISuperApp, ISuperAgreement, SuperAppDefinitions} from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 
-contract REXForce is AccessControlEnumerable {
-    // REX Force Contract
-    //
-    // Responsibilities:
-    // - Onboard new captains
-    // - 
+
+contract REXForce is AccessControlEnumerable, SuperAppBase {
 
     using SafeERC20 for IERC20;
 
@@ -94,8 +91,9 @@ contract REXForce is AccessControlEnumerable {
     // Contract variables
     IERC20 public ricAddress;
     ISuperfluid internal host; // Superfluid host contract
+    IConstantFlowAgreementV1 internal cfa; // The stored constant flow agreement class address
     ITellor internal oracle; // Address of deployed simple oracle for input//output token
-    
+
     // TODO - Add function to modify this for admin
     uint256 public votingDuration = 14 days;
 
@@ -106,17 +104,43 @@ contract REXForce is AccessControlEnumerable {
 
     uint256 public totalStakedAmount = 0;
 
-    constructor(IERC20 ricAddressParam, string memory name, string memory email, ITellor _tellor) {  
+
+    constructor(
+      IERC20 ricAddressParam,
+      string memory name,
+      string memory email,
+      ITellor _tellor,
+      ISuperfluid _host,
+      IConstantFlowAgreementV1 _cfa,
+      string memory _registrationKey
+    ) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(CAPTAIN_ROLE, msg.sender);
         captains.push(Captain("Genesis", false, address(0), "genisis@genesis", new uint256[](0), false, 0));
-        // Deployer is the first captain (auto-approved) 
+        // Deployer is the first captain (auto-approved)
         captains.push(Captain(name, true, msg.sender, email, new uint256[](0), false, 0));
         addressToCaptain[msg.sender] = captains.length - 1;
         ricAddress = ricAddressParam;
         nextVoteId = 1;
-
         oracle = _tellor;
+
+        // SuperApp set up
+        host = _host;
+        cfa = _cfa;
+
+        uint256 _configWord = SuperAppDefinitions.APP_LEVEL_FINAL |
+            SuperAppDefinitions.BEFORE_AGREEMENT_CREATED_NOOP |
+            SuperAppDefinitions.BEFORE_AGREEMENT_UPDATED_NOOP |
+            SuperAppDefinitions.BEFORE_AGREEMENT_TERMINATED_NOOP |
+            SuperAppDefinitions.AFTER_AGREEMENT_CREATED_NOOP |
+            SuperAppDefinitions.AFTER_AGREEMENT_UPDATED_NOOP |
+            SuperAppDefinitions.AFTER_AGREEMENT_TERMINATED_NOOP;
+
+        if (bytes(_registrationKey).length > 0) {
+            host.registerAppWithKey(_configWord, _registrationKey);
+        } else {
+            host.registerApp(_configWord);
+        }
     }
 
     /// @dev Validate a captain
@@ -134,7 +158,7 @@ contract REXForce is AccessControlEnumerable {
         require(captain.approved == false, "Captain is already approved");
         _;
     }
-    
+
     modifier noVoteInProgress(address addr) {
         uint256 captainId = addressToCaptain[addr];
         Captain memory captain = captains[captainId];
@@ -251,7 +275,7 @@ contract REXForce is AccessControlEnumerable {
         _addCaptain(name, email, msg.sender);
         uint256 time = block.timestamp;
         _createVote(msg.sender, VOTE_KIND_ONBOARDING, time);
-        
+
         emit VotingStarted(msg.sender, VOTE_KIND_ONBOARDING, time);
     }
 
@@ -310,7 +334,7 @@ contract REXForce is AccessControlEnumerable {
     }
 
     function resignCaptain() public onlyCaptain noVoteInProgress(msg.sender) {
-        
+
         uint256 time = block.timestamp;
         _createVote(msg.sender, VOTE_KIND_RESIGN, time);
 
@@ -323,7 +347,7 @@ contract REXForce is AccessControlEnumerable {
         uint256 time = block.timestamp;
         require(currentVote.kind == VOTE_KIND_RESIGN, "Invalid vote kind");
         require(currentVote.start + votingDuration < time, "Voting duration not expired");
-        
+
         bool passed = _isVotePassed(currentVote);
 
         if (passed) {
@@ -407,17 +431,17 @@ contract REXForce is AccessControlEnumerable {
 
         emit BountyApproved(bountyId, msg.sender);
     }
-    
+
     function approvePayout(uint256 bountyId, address payee) public onlyCaptain onlyApprovedBounty(bountyId) {
         require(payee != address(0), "Address cannot be 0");
         require(bountyId < bounties.length, "Bounty does not exist");
-        
+
         Bounty storage bounty = bounties[bountyId];
 
         require(bounty.payoutComplete == false, "Payout already completed");
         require(bounty.payee == address(0) || bounty.payee == payee, "Payee does not match");
         require(bounty.approvals.length == 0 || bounty.approvals[0] != msg.sender, "Already approved");
-        
+
         // If we already have 1 approval, we can pay out and mint bountyNFT
         if (bounty.approvals.length == 1) {
             // TODO: Transfer USD valued RIC to payee
