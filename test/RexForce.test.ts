@@ -233,9 +233,8 @@ describe("REXForce", async function () {
       console.log("Try approve", rexForce.address);
 
       let ricxApproveOperation = ricx.approve({
-        spender: "0x0",
-        amount: ethers.utils.parseEther("10000"),
-        providerOrSigner: admin
+        spender: rexForce.address,
+        amount: ethers.utils.parseEther("10000")
       });
       await ricxApproveOperation.exec(secondCaptain);
 
