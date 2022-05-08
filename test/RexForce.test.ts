@@ -1,12 +1,22 @@
 
 let { toWad } = require("@decentral.ee/web3-helpers");
 let { Framework } = require("@superfluid-finance/sdk-core");
-let { assert } = require("chai");
+let { expect, assert } = require("chai");
 let { ethers, web3 } = require("hardhat");
-let daiABI = require("./abis/fDAIABI");
+let ricABI = require("./abis/fDAIABI");
 import traveler from "ganache-time-traveler";
 import { REXForce  } from "../typechain";
-const TEST_TRAVEL_TIME = 3600 * 2; // 1 hours
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+
+const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
+const CAPTAINS_FLOW_RATE = "3858024691360000";
+const REXFORCE_FLOW_RATE = "38580246913600000";
+const CAPTAINS_STAKE_AMOUNT = ethers.utils.parseEther("10000");
+
+const VOTE_KIND_NONE = 0;
+const VOTE_KIND_ONBOARDING = 1;
+const VOTE_KIND_RESIGN = 2;
+const VOTE_KIND_DISPUTE = 3;
 
 
 let deployFramework = require("@superfluid-finance/ethereum-contracts/scripts/deploy-framework");
@@ -17,11 +27,17 @@ let provider = web3;
 
 let accounts: any[]
 
+let admin: SignerWithAddress;
+let firstCaptain: SignerWithAddress;
+let secondCaptain: SignerWithAddress;
+let thirdCaptain: SignerWithAddress;
+
 let sf: InstanceType<typeof Framework>;;
-let dai: InstanceType<typeof daiABI>;
-let daix: InstanceType<typeof daiABI>;
+let ric: InstanceType<typeof ricABI>;
+let ricx: InstanceType<typeof ricABI>;
 let superSigner: InstanceType<typeof sf.createSigner>;
 let rexForce: InstanceType<typeof REXForce>;
+let tellor;
 
 let errorHandler = (err: any) => {
   if (err) throw err;
@@ -29,24 +45,24 @@ let errorHandler = (err: any) => {
 
 before(async function () {
   //get accounts from hardhat
-  accounts = await ethers.getSigners();
+  [admin, firstCaptain, secondCaptain, thirdCaptain] = await ethers.getSigners();
 
   //deploy the framework
   await deployFramework(errorHandler, {
     web3,
-    from: accounts[0].address,
+    from: admin.address,
   });
 
   //deploy a fake erc20 token
   let fDAIAddress = await deployTestToken(errorHandler, [":", "fDAI"], {
     web3,
-    from: accounts[0].address,
+    from: admin.address,
   });
 
   //deploy a fake erc20 wrapper super token around the fDAI token
   let fDAIxAddress = await deploySuperToken(errorHandler, [":", "fDAI"], {
     web3,
-    from: accounts[0].address,
+    from: admin.address,
   });
 
   console.log("fDAIxAddress: ", fDAIxAddress);
@@ -62,105 +78,227 @@ before(async function () {
   });
 
   superSigner = await sf.createSigner({
-    signer: accounts[0],
+    signer: admin,
     provider: provider
   });
 
   //use the framework to get the super token
-  daix = await sf.loadSuperToken("fDAIx");
+  ricx = await sf.loadSuperToken("fDAIx");
 
   //get the contract object for the erc20 token
-  let daiAddress = daix.underlyingToken.address;
-  dai = new ethers.Contract(daiAddress, daiABI, accounts[0]);
+  let ricAddress = ricx.underlyingToken.address;
+  ric = new ethers.Contract(ricAddress, ricABI, admin);
+  const TellorPlayground = await ethers.getContractFactory('TellorPlayground');
+  tellor = await TellorPlayground.deploy("Tributes", "TRB");
+  await tellor.deployed();
 
-  let App = await ethers.getContractFactory("REXForce", accounts[0]);
+  let App = await ethers.getContractFactory("REXForce", firstCaptain);
 
   //deploy the contract
   rexForce = await App.deploy(
-    daix.address,
+    ricx.address,
     "Alice",
     "alice@alice.com",
-    sf.settings.config.hostAddress,
+    tellor.address,
     sf.settings.config.hostAddress,
     sf.settings.config.cfaV1Address,
     ""
   );
 
-  const appInitialBalance = await daix.balanceOf({
-    account: rexForce.address,
-    providerOrSigner: accounts[0]
-  });
+  await rexForce.deployed();
 
-  console.log("appInitialBalance: ", appInitialBalance); // initial balance of the app is 0
-
-  await dai.mint(
-    accounts[0].address, ethers.utils.parseEther("1000")
+  // Mint some RIC for Rexforce
+  await ric.mint(
+    admin.address, ethers.utils.parseEther("1000000")
+  );
+  await ric.mint(
+    firstCaptain.address, ethers.utils.parseEther("1000000")
+  );
+  await ric.mint(
+    secondCaptain.address, ethers.utils.parseEther("1000000")
+  );
+  await ric.mint(
+    thirdCaptain.address, ethers.utils.parseEther("1000000")
   );
 
-  await dai.approve(daix.address, ethers.utils.parseEther("1000"));
+  // Upgrade the RIC to RICx
+  // NOTE: Couldn't figure out how to make a native supertoken
+  //       so RIC and RICx were made here, RICx is Supertoken RIC
+  await ric.approve(ricx.address, ethers.utils.parseEther("1000000"));
+  await ric.connect(firstCaptain).approve(ricx.address, ethers.utils.parseEther("1000000"));
+  await ric.connect(secondCaptain).approve(ricx.address, ethers.utils.parseEther("1000000"));
+  await ric.connect(thirdCaptain).approve(ricx.address, ethers.utils.parseEther("1000000"));
 
-  const daixUpgradeOperation = daix.upgrade({
-    amount: ethers.utils.parseEther("1000")
+  let ricxUpgradeOperation = ricx.upgrade({
+    amount: ethers.utils.parseEther("1000000")
   });
-
-  await daixUpgradeOperation.exec(accounts[0]);
-
-  const daiBal = await daix.balanceOf({
-    account: accounts[0].address,
-    providerOrSigner: accounts[0]
+  await ricxUpgradeOperation.exec(admin);
+  ricxUpgradeOperation = ricx.upgrade({
+    amount: ethers.utils.parseEther("1000000")
   });
-  console.log('daix bal for acct 0: ', daiBal);
+  await ricxUpgradeOperation.exec(firstCaptain);
+  ricxUpgradeOperation = ricx.upgrade({
+    amount: ethers.utils.parseEther("1000000")
+  });
+  await ricxUpgradeOperation.exec(secondCaptain);
+  ricxUpgradeOperation = ricx.upgrade({
+    amount: ethers.utils.parseEther("1000000")
+  });
+  await ricxUpgradeOperation.exec(thirdCaptain);
 
-  // add flow to contract
+
+  // Log the balances of everyone
+  let ricBal = await ricx.balanceOf({
+    account: admin.address,
+    providerOrSigner: admin
+  });
+  console.log('ricx bal for admin: ', ricBal);
+  ricBal = await ricx.balanceOf({
+    account: firstCaptain.address,
+    providerOrSigner: admin
+  });
+  console.log('ricx bal for firstCaptain: ', ricBal);
+  ricBal = await ricx.balanceOf({
+    account: secondCaptain.address,
+    providerOrSigner: admin
+  });
+  console.log('ricx bal for secondCaptain: ', ricBal);
+  ricBal = await ricx.balanceOf({
+    account: thirdCaptain.address,
+    providerOrSigner: admin
+  });
+  console.log('ricx bal for thirdCaptain: ', ricBal);
+
+  // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
   const createFlowOperation = await sf.cfaV1.createFlow({
     receiver: rexForce.address,
-    superToken: daix.address,
-    flowRate: toWad(0.01).toString(),
+    superToken: ricx.address,
+    flowRate: CAPTAINS_FLOW_RATE
   })
 
-  const txn = await createFlowOperation.exec(accounts[0]);
+  const txn = await createFlowOperation.exec(admin);
   const receipt = await txn.wait();
 
+  // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
   console.log("go forward in time");
-  await traveler.advanceTimeAndBlock(TEST_TRAVEL_TIME);
+  await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
 
-  const balance = await daix.balanceOf({ account: rexForce.address, providerOrSigner: accounts[0] });
-  console.log('daix bal after flow: ', balance);
 });
 
 beforeEach(async function () {
-  let alice = accounts[1];
-
-  await dai.connect(alice).mint(
-    alice.address, ethers.utils.parseEther("1000")
-  );
-
-  await dai.connect(alice).approve(
-    daix.address, ethers.utils.parseEther("1000")
-  );
-
-  const daixUpgradeOperation = daix.upgrade({
-    amount: ethers.utils.parseEther("1000")
-  });
-
-  await daixUpgradeOperation.exec(alice);
-
-  const daiBal = await daix.balanceOf({ account: alice.address, providerOrSigner: accounts[0] });
-  console.log('daix bal for acct alice: ', daiBal);
+  // TODO
 });
 
 async function netFlowRate(user: any) {
   const flow = await sf.cfaV1.getNetFlow({
-    superToken: daix.address,
+    superToken: ricx.address,
     account: user.address,
     providerOrSigner: superSigner
   });
   return flow;
 }
 
-
 describe("REXForce", async function () {
-  it("#1 - deploys with correct parameters", async () => {
-    // TODO
+
+  context("#1 - Onboards a captain", async () => {
+
+    it("#1.1 has first captain", async () => {
+      assert.equal(
+        (await rexForce.captains(0)).toString(),
+        'Genesis,false,0x0000000000000000000000000000000000000000,genisis@genesis,false,0',
+        'genisis captain does not exist'
+      );
+      assert.equal(
+        (await rexForce.captains(1)).toString(),
+        `Alice,true,${firstCaptain.address},alice@alice.com,false,0`,
+        'first captain does not exist'
+      );
+
+      // TODO
+      assert.equal(
+        (await netFlowRate(admin)).toString(),
+        CAPTAINS_FLOW_RATE,
+        'first captain not paid'
+      );
+
+    });
+
+    it.only("#1.2 applyForCaptain", async () => {
+
+      // Try to reapply firstCaptain and revert
+      await expect(
+        rexForce.connect(firstCaptain).applyForCaptain("Alice", "alice@alice.com")
+      ).to.be.revertedWith("Already applied or can't apply");
+
+      console.log("Try approve", rexForce.address);
+
+      let ricxApproveOperation = ricx.approve({
+        spender: "0x0",
+        amount: ethers.utils.parseEther("10000"),
+        providerOrSigner: admin
+      });
+      await ricxApproveOperation.exec(secondCaptain);
+
+      // await rexForce.applyForCaptain("Bob", "bob@bob.com");
+
+      // await expect(rexForce.applyForCaptain("Bob", "bob@bob.com"))
+      //   .to.emit(rexForce, "VotingStarted")
+      //   .withArgs(
+      //     secondCaptain.address,
+      //     VOTE_KIND_ONBOARDING,
+      //     (await ethers.provider.getBlock("latest")).timestamp
+      //   );
+
+
+    });
+
+    it("#1.3 castVote and endCaptainOnboardingVote with yes vote", async () => {
+      // TODO
+    });
+
+    it("#1.4 castVote and endCaptainOnboardingVote with no vote", async () => {
+      // TODO
+    });
   });
-})
+
+  context("#2 - Offboards a captain", async () => {
+    it("#2.1 resignCaptain", async () => {
+      // TODO
+    });
+
+    it("#2.2 castVote and endCaptainResignVote with a positive vote", async () => {
+      // TODO
+    });
+
+    it("#2.3 castVote and endCaptainResignVote with a negative vote", async () => {
+      // TODO
+    });
+
+    it("#2.4 disputeCaptain", async () => {
+      // TODO
+    });
+
+    it("#2.5 castVote and endCaptainDisputeVote with a positive vote", async () => {
+      // TODO
+    });
+
+    it("#2.6 castVote and endCaptainDisputeVote with a negative vote", async () => {
+      // TODO
+    });
+  });
+
+  context("#3 - Manages Bounties", async () => {
+    it("#3.1 create/approveBounty", async () => {
+      // TODO
+    });
+
+    it("#3.2 resetBountyPayee", async () => {
+      // TODO
+    });
+
+    it("#3.3 approvePayout", async () => {
+      // TODO
+    });
+  });
+
+});
