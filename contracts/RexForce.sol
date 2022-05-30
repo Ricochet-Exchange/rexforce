@@ -104,7 +104,6 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
 
     uint256 public totalStakedAmount = 0;
 
-
     constructor(
       IERC20 ricAddressParam,
       string memory name,
