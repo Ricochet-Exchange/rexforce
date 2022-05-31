@@ -233,20 +233,20 @@ describe("REXForce", async function () {
       console.log("Try approve", rexForce.address);
 
       let ricxApproveOperation = ricx.approve({
-        spender: rexForce.address,
+        receiver: rexForce.address,
         amount: ethers.utils.parseEther("10000")
       });
       await ricxApproveOperation.exec(secondCaptain);
 
-      // await rexForce.applyForCaptain("Bob", "bob@bob.com");
-
-      // await expect(rexForce.applyForCaptain("Bob", "bob@bob.com"))
-      //   .to.emit(rexForce, "VotingStarted")
-      //   .withArgs(
-      //     secondCaptain.address,
-      //     VOTE_KIND_ONBOARDING,
-      //     (await ethers.provider.getBlock("latest")).timestamp
-      //   );
+      await expect(
+          rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
+        )
+        .to.emit(rexForce, "VotingStarted")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_ONBOARDING,
+          (await ethers.provider.getBlock("latest")).timestamp
+        );
 
 
     });

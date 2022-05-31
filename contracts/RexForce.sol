@@ -94,7 +94,7 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
     IConstantFlowAgreementV1 internal cfa; // The stored constant flow agreement class address
     ITellor internal oracle; // Address of deployed simple oracle for input//output token
 
-    // TODO - Add function to modify this for admin
+    // TODO - Add function to modify these parameters for admin
     uint256 public votingDuration = 14 days;
 
     uint256 public captainAmountToStake = (10 ** 18) * 10000;
@@ -103,6 +103,8 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
     uint256 public disputeAmountToStake = (10 ** 18) * 1000;
 
     uint256 public totalStakedAmount = 0;
+
+    int96 public salaryFlowRate = int96(10000) / int96(30 * 24 * 60 * 60); // 10K RIC per month default
 
 
     constructor(
@@ -114,10 +116,12 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
       IConstantFlowAgreementV1 _cfa,
       string memory _registrationKey
     ) {
+        require(address(_host) != address(0), "host is zero address");
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(CAPTAIN_ROLE, msg.sender);
         captains.push(Captain("Genesis", false, address(0), "genisis@genesis", new uint256[](0), false, 0));
         // Deployer is the first captain (auto-approved)
+        // TODO: Needs to deposit a stake, open stream to captain
         captains.push(Captain(name, true, msg.sender, email, new uint256[](0), false, 0));
         addressToCaptain[msg.sender] = captains.length - 1;
         ricAddress = ricAddressParam;
@@ -259,6 +263,34 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
         return false;
     }
 
+    function startRicSalaryStream(address captainAddress) internal {
+        host.callAgreement(
+            cfa,
+            abi.encodeWithSelector(
+                cfa.createFlow.selector,
+                ricAddress,
+                captainAddress,
+                salaryFlowRate,
+                new bytes(0) // placeholder ctx
+            ),
+            new bytes(0) // user data
+        );
+    }
+
+    function stopRicSalaryStream(address captainAddress) internal {
+        host.callAgreement(
+            cfa,
+            abi.encodeWithSelector(
+                cfa.deleteFlow.selector,
+                ricAddress,
+                address(this),
+                captainAddress,
+                new bytes(0) // placeholder ctx
+            ),
+            new bytes(0) // user data
+        );
+    }
+
     // Apply for captain
     function applyForCaptain(string memory name, string memory email) public {
         // Dishonorable or already applied
@@ -298,7 +330,7 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
             // if vote passed - increase activeCaptains and start RIC stream.
             _grantRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = true;
-            // startRicStream(captainAddress); // TODO: Start RIC stream, tansfer NFT
+            // startRICSalaryStream(captainAddress); // TODO: Start RIC stream, tansfer NFT
         } else {
             // if vote failed - transfer back RIC
             ricAddress.safeTransfer(
@@ -364,7 +396,7 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
 
         _revokeRole(CAPTAIN_ROLE, captainAddress);
         captain.approved = false;
-        // stopRicStream(captainAddress); // TODO: Stop RIC stream, revoke NFT
+        // stopRICSalaryStream(captainAddress); // TODO: Stop RIC stream, revoke NFT
 
         _stopVote(captainAddress);
 
@@ -405,7 +437,7 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
             // TODO - function
             _revokeRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = false;
-            // stopRicStream(captainAddress); // TODO: Stop RIC stream, revoke NFT
+            // stopRICSalaryStream(captainAddress); // TODO: Stop RIC stream, revoke NFT
         }
 
         _stopVote(captainAddress);
