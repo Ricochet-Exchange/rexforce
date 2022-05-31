@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.14;
 
 import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -103,7 +103,6 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
     uint256 public disputeAmountToStake = (10 ** 18) * 1000;
 
     uint256 public totalStakedAmount = 0;
-
 
     constructor(
       IERC20 ricAddressParam,
@@ -432,6 +431,8 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
         emit BountyApproved(bountyId, msg.sender);
     }
 
+    // TODO: Do not allow disputed captains to approve payouts
+    // TODO: Write interface for RexCaptain and use that to check captain stuff
     function approvePayout(uint256 bountyId, address payee) public onlyCaptain onlyApprovedBounty(bountyId) {
         require(payee != address(0), "Address cannot be 0");
         require(bountyId < bounties.length, "Bounty does not exist");
