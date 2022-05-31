@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.14;
 
 import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -94,7 +94,7 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
     IConstantFlowAgreementV1 internal cfa; // The stored constant flow agreement class address
     ITellor internal oracle; // Address of deployed simple oracle for input//output token
 
-    // TODO - Add function to modify these parameters for admin
+    // TODO - Add function to modify this for admin
     uint256 public votingDuration = 14 days;
 
     uint256 public captainAmountToStake = (10 ** 18) * 10000;
@@ -103,9 +103,6 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
     uint256 public disputeAmountToStake = (10 ** 18) * 1000;
 
     uint256 public totalStakedAmount = 0;
-
-    int96 public salaryFlowRate = int96(10000) / int96(30 * 24 * 60 * 60); // 10K RIC per month default
-
 
     constructor(
       IERC20 ricAddressParam,
@@ -116,12 +113,10 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
       IConstantFlowAgreementV1 _cfa,
       string memory _registrationKey
     ) {
-        require(address(_host) != address(0), "host is zero address");
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(CAPTAIN_ROLE, msg.sender);
         captains.push(Captain("Genesis", false, address(0), "genisis@genesis", new uint256[](0), false, 0));
         // Deployer is the first captain (auto-approved)
-        // TODO: Needs to deposit a stake, open stream to captain
         captains.push(Captain(name, true, msg.sender, email, new uint256[](0), false, 0));
         addressToCaptain[msg.sender] = captains.length - 1;
         ricAddress = ricAddressParam;
@@ -464,6 +459,8 @@ contract REXForce is AccessControlEnumerable, SuperAppBase {
         emit BountyApproved(bountyId, msg.sender);
     }
 
+    // TODO: Do not allow disputed captains to approve payouts
+    // TODO: Write interface for RexCaptain and use that to check captain stuff
     function approvePayout(uint256 bountyId, address payee) public onlyCaptain onlyApprovedBounty(bountyId) {
         require(payee != address(0), "Address cannot be 0");
         require(bountyId < bounties.length, "Bounty does not exist");
