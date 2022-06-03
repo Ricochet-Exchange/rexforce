@@ -418,7 +418,6 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         voteInProgress(captainAddress)
     {
         RexCaptainStorage.Vote storage currentVote = _getCurrentVote(captainAddress);
-        // TODO: Require vote exsits?
         require(currentVote.voted[msg.sender] == false, "Already voted");
 
         if (vote) {
