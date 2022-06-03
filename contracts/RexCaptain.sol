@@ -22,8 +22,8 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     // Events
     event CaptainApplied(string name, string email);
-    event VotingStarted(address addr, uint8 kind, uint256 start);
-    event VotingEnded(address addr, uint8 kind, bool approved, uint256 end);
+    event VotingStarted(address addr, uint8 kind);
+    event VotingEnded(address addr, uint8 kind, bool approved);
     event VoteCast(address captainAddress, uint8 kind, bool vote);
     event CaptainUpdatedStake(uint256 oldAmount, uint256 newAmount);
     event CaptainStakeChanged(uint256 oldAmount, uint256 newAmount);
@@ -34,7 +34,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
     mapping(uint256 => RexCaptainStorage.Vote) public voteIdToVote;
 
     RexCaptainStorage.Captain[] public captains;
-    
+
     uint256 public nextVoteId;
 
     // Contract variables
@@ -89,16 +89,10 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         // SuperApp set up
         host = _host;
         cfa = _cfa;
-
         // initialize InitData struct, and set equal to cfaV1
         cfaV1 = CFAv1Library.InitData(
             host,
-            //here, we are deriving the address of the CFA using the host contract
-            IConstantFlowAgreementV1(
-                address(host.getAgreementClass(
-                    keccak256("org.superfluid-finance.agreements.ConstantFlowAgreement.v1")
-                ))
-            )
+            cfa
         );
 
         uint256 _configWord = SuperAppDefinitions.APP_LEVEL_FINAL |
@@ -201,12 +195,10 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     /// @dev Check if a vote has passed. Quorum is required, and more than half of the votes must be 'for'.
     function _isVotePassed(RexCaptainStorage.Vote storage currentVote) internal view returns (bool) {
-        uint256 qMul = captains.length * 2;
-        uint256 quorum = (qMul / 3);
-        // If quorum is not a whole number, take its ceiling
-        if (qMul % 3 > 0) {
-            quorum += 1;
-        }
+
+        // TODO: Double check this, quorum should be 33% fo the captains
+        uint256 quorum = captains.length / 3;
+        console.log(quorum);
 
         require(currentVote.forSum + currentVote.againstSum >= quorum, "Not enough votes");
 
@@ -215,7 +207,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
         return false;
     }
-    
+
     /// @dev Cast a uint to int96 (for Superfluid purposes).
     function _safeCastToInt96(uint256 _value) internal pure returns (int96) {
         require(_value < 2 ** 96, "int96 overflow");
@@ -246,7 +238,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         emit VotingDurationChanged(votingDuration, newDuration);
         votingDuration = newDuration;
     }
-    
+
     /// @notice Modify the stake amount required for captains.
 	/// Existing captains must call modifyCaptainStake to update their stake and stream.
 	/// @param amount New stake amount for captains
@@ -254,14 +246,14 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         emit CaptainStakeChanged(captainAmountToStake, amount);
         captainAmountToStake = amount;
     }
-    
+
     /// @notice Modify the stake amount required for dispute.
 	/// @param amount New stake amount for dispute
     function modifyDisputeAmount(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         emit DisputeStakeChanged(disputeAmountToStake, amount);
         disputeAmountToStake = amount;
     }
-    
+
 	/// @notice Apply for captain with given details.
 	/// The required stake amount is transferred from the candidate's address.
 	/// @param name Name of the captain
@@ -283,7 +275,8 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         uint256 time = block.timestamp;
         _createVote(msg.sender, VOTE_KIND_ONBOARDING, time);
 
-        emit VotingStarted(msg.sender, VOTE_KIND_ONBOARDING, time);
+        emit CaptainApplied(name, email);
+        emit VotingStarted(msg.sender, VOTE_KIND_ONBOARDING);
     }
 
     /// @notice End the captain onboarding vote.
@@ -318,7 +311,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         }
         _stopVote(captainAddress);
 
-        emit VotingEnded(captainAddress, VOTE_KIND_ONBOARDING, passed, time);
+        emit VotingEnded(captainAddress, VOTE_KIND_ONBOARDING, passed);
     }
 
     /// @notice Start a vote to resign from the captain position.
@@ -329,7 +322,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         uint256 time = block.timestamp;
         _createVote(msg.sender, VOTE_KIND_RESIGN, time);
 
-        emit VotingStarted(msg.sender, VOTE_KIND_RESIGN, time);
+        emit VotingStarted(msg.sender, VOTE_KIND_RESIGN);
     }
 
     /// @notice End a captain resignation vote.
@@ -361,7 +354,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
         _stopVote(captainAddress);
 
-        emit VotingEnded(captainAddress, VOTE_KIND_RESIGN, passed, time);
+        emit VotingEnded(captainAddress, VOTE_KIND_RESIGN, passed);
     }
 
     /// @notice Start a vote to dispute a captain.
@@ -380,7 +373,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         uint256 time = block.timestamp;
         _createVote(captainAddress, VOTE_KIND_DISPUTE, time);
 
-        emit VotingStarted(msg.sender, VOTE_KIND_DISPUTE, time);
+        emit VotingStarted(msg.sender, VOTE_KIND_DISPUTE);
     }
 
     /// @notice End dispute captain vote.
@@ -411,7 +404,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
         _stopVote(captainAddress);
 
-        emit VotingEnded(captainAddress, VOTE_KIND_DISPUTE, passed, time);
+        emit VotingEnded(captainAddress, VOTE_KIND_DISPUTE, passed);
     }
 
     /// @notice Cast vote for a vote in progress.
@@ -463,7 +456,13 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         emit CaptainUpdatedStake(captain.stakedAmount, captainAmountToStake);
 
         captain.stakedAmount = captainAmountToStake; // TEST: verify that this gets updated when calling function
-        _manageCaptainStream(msg.sender, FLOW_UPDATE);
+
+        (,int96 streamerFlowRate,,) = cfa.getFlow(ISuperToken(address(ricAddress)), address(this), msg.sender);
+        if(streamerFlowRate == 0) {
+          _manageCaptainStream(msg.sender, FLOW_CREATE);
+        } else {
+          _manageCaptainStream(msg.sender, FLOW_UPDATE);
+        }
     }
 
     /// @notice Emergency use only: withdraw all funds from contract.

@@ -5,12 +5,13 @@ let { expect, assert } = require("chai");
 let { ethers, web3 } = require("hardhat");
 let ricABI = require("./abis/fDAIABI");
 import traveler from "ganache-time-traveler";
-import { REXForce  } from "../typechain";
+import { REXCaptain  } from "../typechain";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
-const CAPTAINS_FLOW_RATE = "3858024691360000";
-const REXFORCE_FLOW_RATE = "38580246913600000";
+const VOTING_DURATION = 60 * 60 * 24 * 14;
+const CAPTAINS_FLOW_RATE = "317097919837645";
+const REXFORCE_FLOW_RATE = "31709791983764500";
 const CAPTAINS_STAKE_AMOUNT = ethers.utils.parseEther("10000");
 
 const VOTE_KIND_NONE = 0;
@@ -36,7 +37,7 @@ let sf: InstanceType<typeof Framework>;;
 let ric: InstanceType<typeof ricABI>;
 let ricx: InstanceType<typeof ricABI>;
 let superSigner: InstanceType<typeof sf.createSigner>;
-let rexForce: InstanceType<typeof REXForce>;
+let rexForce: InstanceType<typeof REXCaptain>;
 let tellor;
 
 let errorHandler = (err: any) => {
@@ -92,14 +93,14 @@ before(async function () {
   tellor = await TellorPlayground.deploy("Tributes", "TRB");
   await tellor.deployed();
 
-  let App = await ethers.getContractFactory("REXForce", firstCaptain);
+  let App = await ethers.getContractFactory("REXCaptain", firstCaptain);
 
   //deploy the contract
+  console.log("CFA", sf.settings.config.cfaV1Address)
   rexForce = await App.deploy(
     ricx.address,
     "Alice",
     "alice@alice.com",
-    tellor.address,
     sf.settings.config.hostAddress,
     sf.settings.config.cfaV1Address,
     ""
@@ -173,7 +174,7 @@ before(async function () {
   const createFlowOperation = await sf.cfaV1.createFlow({
     receiver: rexForce.address,
     superToken: ricx.address,
-    flowRate: CAPTAINS_FLOW_RATE
+    flowRate: REXFORCE_FLOW_RATE
   })
 
   const txn = await createFlowOperation.exec(admin);
@@ -200,63 +201,150 @@ async function netFlowRate(user: any) {
 
 describe("REXForce", async function () {
 
-  context("#1 - Onboards a captain", async () => {
+  context.only("#1 - Onboards a captain, modifyCaptainStake", async () => {
 
     it("#1.1 has first captain", async () => {
       assert.equal(
         (await rexForce.captains(0)).toString(),
-        'Genesis,false,0x0000000000000000000000000000000000000000,genisis@genesis,false,0',
+        'Genesis,false,0x0000000000000000000000000000000000000000,genisis@genesis,0,false,0,0',
         'genisis captain does not exist'
       );
       assert.equal(
         (await rexForce.captains(1)).toString(),
-        `Alice,true,${firstCaptain.address},alice@alice.com,false,0`,
+        `Alice,true,${firstCaptain.address},alice@alice.com,0,false,0,0`,
         'first captain does not exist'
       );
 
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+
+      await rexForce.connect(firstCaptain).modifyCaptainStake();
+
       // TODO
       assert.equal(
-        (await netFlowRate(admin)).toString(),
+        (await netFlowRate(firstCaptain)).toString(),
         CAPTAINS_FLOW_RATE,
         'first captain not paid'
       );
 
+      expect((await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: admin
+      }))).to.equal(ethers.utils.parseEther("990000"));
+
     });
 
-    it.only("#1.2 applyForCaptain", async () => {
+    it("#1.2 applyForCaptain", async () => {
 
       // Try to reapply firstCaptain and revert
       await expect(
         rexForce.connect(firstCaptain).applyForCaptain("Alice", "alice@alice.com")
       ).to.be.revertedWith("Already applied or can't apply");
 
-      console.log("Try approve", rexForce.address);
-
       let ricxApproveOperation = ricx.approve({
-        spender: rexForce.address,
-        amount: ethers.utils.parseEther("10000")
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
       });
       await ricxApproveOperation.exec(secondCaptain);
-
-      // await rexForce.applyForCaptain("Bob", "bob@bob.com");
-
-      // await expect(rexForce.applyForCaptain("Bob", "bob@bob.com"))
-      //   .to.emit(rexForce, "VotingStarted")
-      //   .withArgs(
-      //     secondCaptain.address,
-      //     VOTE_KIND_ONBOARDING,
-      //     (await ethers.provider.getBlock("latest")).timestamp
-      //   );
-
+      await expect(
+          rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
+        )
+        .to.emit(rexForce, "CaptainApplied")
+        .withArgs(
+          "Bob",
+          "bob@bob.com"
+        )
+        .to.emit(rexForce, "VotingStarted")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_ONBOARDING
+        )
 
     });
 
     it("#1.3 castVote and endCaptainOnboardingVote with yes vote", async () => {
-      // TODO
+
+      // firstCaptain votes to approve secondCaptain
+      await expect(
+          rexForce.connect(firstCaptain).castVote(secondCaptain.address, true)
+      )
+      .to.emit(rexForce, "VoteCast")
+      .withArgs(
+        secondCaptain.address,
+        VOTE_KIND_ONBOARDING,
+        true
+      );
+
+      let timestamp = (await ethers.provider.getBlock('latest')).timestamp
+      let vote = await rexForce.voteIdToVote(1);
+      await expect(vote[0]).to.equal(ethers.BigNumber.from(1))
+      await expect(vote[1]).to.equal(VOTE_KIND_ONBOARDING)
+      await expect(vote[2]).to.equal(secondCaptain.address)
+      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp-2), ethers.BigNumber.from(timestamp+2))
+      await expect(vote[4]).to.equal(ethers.BigNumber.from(0))
+      await expect(vote[5]).to.equal(ethers.BigNumber.from(1))
+
+      await expect(
+        rexForce.connect(firstCaptain).castVote(secondCaptain.address, true)
+      ).to.be.revertedWith("Already voted");
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(secondCaptain.address)
+      ).to.be.revertedWith("Voting duration not expired");
+
+      await traveler.advanceTimeAndBlock(VOTING_DURATION);
+
+      await expect(
+          rexForce.connect(firstCaptain).endCaptainOnboardingVote(secondCaptain.address)
+      )
+      .to.emit(rexForce, "VotingEnded")
+      .withArgs(
+        secondCaptain.address,
+        VOTE_KIND_ONBOARDING,
+        true
+      );
+
     });
 
     it("#1.4 castVote and endCaptainOnboardingVote with no vote", async () => {
-      // TODO
+
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
+      });
+      await ricxApproveOperation.exec(thirdCaptain);
+
+      await expect(
+          rexForce.connect(thirdCaptain).applyForCaptain("Carl", "carl@carl.com")
+        )
+        .to.emit(rexForce, "CaptainApplied")
+        .withArgs(
+          "Carl",
+          "carl@carl.com"
+        )
+        .to.emit(rexForce, "VotingStarted")
+        .withArgs(
+          thirdCaptain.address,
+          VOTE_KIND_ONBOARDING
+        )
+
+      await rexForce.connect(firstCaptain).castVote(thirdCaptain.address, false);
+
+      await traveler.advanceTimeAndBlock(VOTING_DURATION);
+
+      await expect(
+          rexForce.connect(firstCaptain).endCaptainOnboardingVote(thirdCaptain.address)
+      )
+      .to.emit(rexForce, "VotingEnded")
+      .withArgs(
+        thirdCaptain.address,
+        VOTE_KIND_ONBOARDING,
+        false
+      );
+
     });
   });
 
