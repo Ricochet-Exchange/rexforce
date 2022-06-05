@@ -44,7 +44,7 @@ contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
         ISuperfluid _host,
         IConstantFlowAgreementV1 _cfa,
         string memory _registrationKey
-    ) ERC721("GameItem", "ITM") {
+    ) ERC721("RexForce Genesis", "GEN") {
 
         ricAddress = ricAddressParam;
         captainHost = _captainHost;
@@ -135,7 +135,7 @@ contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
         if (bounty.approvals.length == 1) {
             uint256 ricValue = getTokenPrice();
             // TODO: Check decimals for ricValue and fix
-            ricAddress.safeTransfer(payee, ((bounty.amount * (10 ** 6)) / ricValue) * 10 ** 18);
+            ricAddress.safeTransfer(payee, ((bounty.amount * (10 ** 6)) / ricValue) * 10 ** 12);
 
             createNFT(payee, bounty.ipfsHashURI);
             bounty.payoutComplete = true;
