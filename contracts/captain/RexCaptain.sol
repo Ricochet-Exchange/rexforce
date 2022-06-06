@@ -5,7 +5,7 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
-import "./tellor/ITellor.sol";
+import "../tellor/ITellor.sol";
 import { SuperAppBase } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
 import { IConstantFlowAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import { ISuperfluid, ISuperToken, SuperAppDefinitions } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -35,31 +35,31 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     RexCaptainStorage.Captain[] public captains;
 
-    uint256 public override nextVoteId;
+    uint256 public nextVoteId;
 
     // Contract variables
     ISuperToken public ricAddress;
     ISuperfluid internal host; // Superfluid host contract
     IConstantFlowAgreementV1 internal cfa; // The stored constant flow agreement class address
 
-    uint256 public override votingDuration = 14 days;
+    uint256 public votingDuration = 14 days;
 
-    uint256 public override captainAmountToStake = (10 ** 18) * 10000;
+    uint256 public captainAmountToStake = (10 ** 18) * 10000;
 
-    uint256 public override disputeAmountToStake = (10 ** 18) * 1000;
+    uint256 public disputeAmountToStake = (10 ** 18) * 1000;
 
-    uint256 public override totalStakedAmount = 0;
+    uint256 public totalStakedAmount = 0;
 
     // Vote constants
-    uint8 public override constant VOTE_KIND_NONE = 0;
-    uint8 public override constant VOTE_KIND_ONBOARDING = 1;
-    uint8 public override constant VOTE_KIND_RESIGN = 2;
-    uint8 public override constant VOTE_KIND_DISPUTE = 3;
+    uint8 public constant VOTE_KIND_NONE = 0;
+    uint8 public constant VOTE_KIND_ONBOARDING = 1;
+    uint8 public constant VOTE_KIND_RESIGN = 2;
+    uint8 public constant VOTE_KIND_DISPUTE = 3;
 
     // Flow constants
-    uint8 public override constant FLOW_CREATE = 0;
-    uint8 public override constant FLOW_TERMINATE = 1;
-    uint8 public override constant FLOW_UPDATE = 2;
+    uint8 public constant FLOW_CREATE = 0;
+    uint8 public constant FLOW_TERMINATE = 1;
+    uint8 public constant FLOW_UPDATE = 2;
 
     // Constants
     uint32 private constant SECONDS_IN_YEAR = 60 * 60 * 24 * 365;
@@ -189,7 +189,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     /// @dev Get the current vote for a captain
     function _getCurrentVote(address captainAddress) internal view returns (RexCaptainStorage.Vote storage vote) {
-        RexCaptainStorage.Captain memory captain = _getCaptain(captainAddress);
+        RexCaptainStorage.Captain memory captain = _getCaptainMemory(captainAddress);
         return voteIdToVote[captain.currentVote];
     }
 
@@ -234,7 +234,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     // Public and external functions
 
-    function isCaptain(address _addr) external view isCaptain(_addr) {}
+    function isCaptainExt(address _addr) external view isCaptain(_addr) {}
 
     function isCaptainDisputed(address _addr) external view isCaptain(_addr) returns (bool) {
         RexCaptainStorage.Captain memory captain = _getCaptainMemory(_addr);
@@ -243,8 +243,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
     }
 
     function getNumberOfCaptains() public view returns (uint256) {
-        // Removing the 0th captain (the genesis captain)
-        return captains.length - 1;
+        return getRoleMemberCount(CAPTAIN_ROLE);
     }
 
     /// @notice Modify the voting duration for RexCaptain votes.

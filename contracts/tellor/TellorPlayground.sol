@@ -81,9 +81,9 @@ contract TellorPlayground {
     string private _symbol;
     uint8 private _decimals;
 
-    constructor (string memory name, string memory symbol) {
-        _name = name;
-        _symbol = symbol;
+    constructor (string memory nameIn, string memory symbolIn) {
+        _name = nameIn;
+        _symbol = symbolIn;
         _decimals = 18;
     }
 

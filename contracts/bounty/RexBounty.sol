@@ -18,7 +18,7 @@ import { RexBountyStorage } from "./RexBountyStorage.sol";
 
 contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
 
-    using SafeERC20 for IERC20;
+    using SafeERC20 for ISuperToken;
     using Counters for Counters.Counter;
     Counters.Counter private _tokenIds;
 
@@ -31,7 +31,7 @@ contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
     event BountyPayoutReset(uint256 bountyId, address captain);
 
     // Contract variables
-    IERC20 public ricAddress;
+    ISuperToken public ricAddress;
     IREXCaptain public captainHost;
     ISuperfluid internal host; // Superfluid host contract
     IConstantFlowAgreementV1 internal cfa; // The stored constant flow agreement class address
@@ -39,12 +39,12 @@ contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
 
     constructor(
         IREXCaptain _captainHost,
-        IERC20 ricAddressParam,
+        ISuperToken ricAddressParam,
         ITellor _tellor,
         ISuperfluid _host,
         IConstantFlowAgreementV1 _cfa,
         string memory _registrationKey
-    ) ERC721("RexForce Genesis", "GEN") {
+    ) ERC721("RexForce Token", "RFT") {
 
         ricAddress = ricAddressParam;
         captainHost = _captainHost;
@@ -75,8 +75,12 @@ contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
     }
 
     modifier onlyCaptain() {
-        captainHost.isCaptain(msg.sender);
+        captainHost.isCaptainExt(msg.sender);
         _;
+    }
+
+    function changeCaptainHost(IREXCaptain _captainHost) public onlyOwner {
+        captainHost = _captainHost;
     }
 
     // Adds RIC to contract
@@ -134,8 +138,7 @@ contract REXBounty is Ownable, SuperAppBase, ERC721URIStorage {
         // If we already have 1 approval, we can pay out and mint bountyNFT
         if (bounty.approvals.length == 1) {
             uint256 ricValue = getTokenPrice();
-            // TODO: Check decimals for ricValue and fix
-            ricAddress.safeTransfer(payee, ((bounty.amount * (10 ** 6)) / ricValue) * 10 ** 12);
+            ricAddress.safeTransfer(payee, ((bounty.amount * (10 ** 24)) / ricValue));
 
             createNFT(payee, bounty.ipfsHashURI);
             bounty.payoutComplete = true;
