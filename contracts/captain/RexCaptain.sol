@@ -50,6 +50,8 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     uint256 public totalStakedAmount = 0;
 
+    uint256 public totalLostStakeAmount = 0;
+
     // Vote constants
     uint8 public constant VOTE_KIND_NONE = 0;
     uint8 public constant VOTE_KIND_ONBOARDING = 1;
@@ -322,7 +324,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
                 captain.stakedAmount // Staked RIC return
             );
             addressToCaptain[captainAddress] = 0;
-            totalStakedAmount -= captainAmountToStake;
+            totalStakedAmount -= captain.stakedAmount;
         }
         _stopVote(captainAddress);
 
@@ -359,6 +361,9 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
             );
 
             addressToCaptain[captainAddress] = 0; // If failed and approved != 0 means dishonorable resignation
+        } else {
+            // Vote did not pass - stake will not be returned
+            totalLostStakeAmount += captain.stakedAmount;
         }
 
         totalStakedAmount -= captain.stakedAmount;
@@ -382,6 +387,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
             address(this),
             disputeAmountToStake // 1k RIC transfer
         );
+        totalStakedAmount += disputeAmountToStake;
 
         RexCaptainStorage.Captain storage captain = _getCaptain(captainAddress);
         captain.disputeStakedAmount = disputeAmountToStake;
@@ -410,13 +416,23 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
                 currentVote.proposer,
                 captain.disputeStakedAmount
             );
+            // Dispute stake returned
+            totalStakedAmount -= captain.disputeStakedAmount;
 
-            captain.disputeStakedAmount = 0;
+            // Captain stake will not be returned
+            totalStakedAmount -= captain.stakedAmount;
+            totalLostStakeAmount += captain.stakedAmount;
+
             _revokeRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = false;
             _manageCaptainStream(captainAddress, FLOW_TERMINATE);
+        } else {
+            // Dispute stake will not be returned
+            totalStakedAmount -= captain.disputeStakedAmount;
+            totalLostStakeAmount += captain.disputeStakedAmount;
         }
 
+        captain.disputeStakedAmount = 0;
         _stopVote(captainAddress);
 
         emit VotingEnded(captainAddress, VOTE_KIND_DISPUTE, passed);
@@ -478,6 +494,14 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         } else {
           _manageCaptainStream(msg.sender, FLOW_UPDATE);
         }
+    }
+
+    /// @notice Withdraw lost stake.
+    /// @param amount Amount to withdraw.
+    function withdrawLostStake(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(ricAddress.balanceOf(address(this)) >= amount, "Not enough funds");
+        ricAddress.safeTransfer(msg.sender, totalLostStakeAmount);
+        totalLostStakeAmount -= amount;
     }
 
     /// @notice Emergency use only: withdraw all funds from contract.
