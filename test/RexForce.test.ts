@@ -7,7 +7,6 @@ let ricABI = require("./abis/fDAIABI");
 import traveler from "ganache-time-traveler";
 import { REXCaptain } from "../typechain";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { BigNumber } from "ethers";
 
 const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
 const VOTING_DURATION = 60 * 60 * 24 * 14;
