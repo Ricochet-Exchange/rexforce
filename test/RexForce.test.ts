@@ -32,6 +32,12 @@ let admin: SignerWithAddress;
 let firstCaptain: SignerWithAddress;
 let secondCaptain: SignerWithAddress;
 let thirdCaptain: SignerWithAddress;
+let forthCaptain: SignerWithAddress;
+let fifthCaptain: SignerWithAddress;
+
+let captains: SignerWithAddress[];
+
+let App: any;
 
 let sf: InstanceType<typeof Framework>;;
 let ric: InstanceType<typeof ricABI>;
@@ -46,7 +52,10 @@ let errorHandler = (err: any) => {
 
 before(async function () {
   //get accounts from hardhat
-  [admin, firstCaptain, secondCaptain, thirdCaptain] = await ethers.getSigners();
+  [admin, firstCaptain, secondCaptain, thirdCaptain, forthCaptain, fifthCaptain ] = await ethers.getSigners();
+
+  captains = [firstCaptain, secondCaptain, thirdCaptain, forthCaptain, fifthCaptain];
+
 
   //deploy the framework
   await deployFramework(errorHandler, {
@@ -93,7 +102,7 @@ before(async function () {
   tellor = await TellorPlayground.deploy("Tributes", "TRB");
   await tellor.deployed();
 
-  let App = await ethers.getContractFactory("REXCaptain", firstCaptain);
+  App = await ethers.getContractFactory("REXCaptain", firstCaptain);
 
   //deploy the contract
   console.log("CFA", sf.settings.config.cfaV1Address)
@@ -108,67 +117,40 @@ before(async function () {
 
   await rexForce.deployed();
 
-  // Mint some RIC for Rexforce
+
   await ric.mint(
     admin.address, ethers.utils.parseEther("1000000")
   );
-  await ric.mint(
-    firstCaptain.address, ethers.utils.parseEther("1000000")
-  );
-  await ric.mint(
-    secondCaptain.address, ethers.utils.parseEther("1000000")
-  );
-  await ric.mint(
-    thirdCaptain.address, ethers.utils.parseEther("1000000")
-  );
-
-  // Upgrade the RIC to RICx
-  // NOTE: Couldn't figure out how to make a native supertoken
-  //       so RIC and RICx were made here, RICx is Supertoken RIC
-  await ric.approve(ricx.address, ethers.utils.parseEther("1000000"));
-  await ric.connect(firstCaptain).approve(ricx.address, ethers.utils.parseEther("1000000"));
-  await ric.connect(secondCaptain).approve(ricx.address, ethers.utils.parseEther("1000000"));
-  await ric.connect(thirdCaptain).approve(ricx.address, ethers.utils.parseEther("1000000"));
+  await ric.connect(admin).approve(ricx.address, ethers.utils.parseEther("1000000"));
 
   let ricxUpgradeOperation = ricx.upgrade({
     amount: ethers.utils.parseEther("1000000")
   });
   await ricxUpgradeOperation.exec(admin);
-  ricxUpgradeOperation = ricx.upgrade({
-    amount: ethers.utils.parseEther("1000000")
-  });
-  await ricxUpgradeOperation.exec(firstCaptain);
-  ricxUpgradeOperation = ricx.upgrade({
-    amount: ethers.utils.parseEther("1000000")
-  });
-  await ricxUpgradeOperation.exec(secondCaptain);
-  ricxUpgradeOperation = ricx.upgrade({
-    amount: ethers.utils.parseEther("1000000")
-  });
-  await ricxUpgradeOperation.exec(thirdCaptain);
 
+  let ricBal;
 
-  // Log the balances of everyone
-  let ricBal = await ricx.balanceOf({
-    account: admin.address,
-    providerOrSigner: admin
-  });
-  console.log('ricx bal for admin: ', ricBal);
-  ricBal = await ricx.balanceOf({
-    account: firstCaptain.address,
-    providerOrSigner: admin
-  });
-  console.log('ricx bal for firstCaptain: ', ricBal);
-  ricBal = await ricx.balanceOf({
-    account: secondCaptain.address,
-    providerOrSigner: admin
-  });
-  console.log('ricx bal for secondCaptain: ', ricBal);
-  ricBal = await ricx.balanceOf({
-    account: thirdCaptain.address,
-    providerOrSigner: admin
-  });
-  console.log('ricx bal for thirdCaptain: ', ricBal);
+  for(let i = 0; i < captains.length; i++) {
+    // Mint some RIC for Rexforce
+    await ric.mint(
+      captains[i].address, ethers.utils.parseEther("1000000")
+    );
+    // Aprove to upgrade
+    await ric.connect(captains[i]).approve(ricx.address, ethers.utils.parseEther("1000000"));
+    // Update
+    ricxUpgradeOperation = ricx.upgrade({
+      amount: ethers.utils.parseEther("1000000")
+    });
+    await ricxUpgradeOperation.exec(captains[i]);
+
+    ricBal = await ricx.balanceOf({
+      account: captains[i].address,
+      providerOrSigner: admin
+    });
+    console.log(`ricx bal for captain #${i}: `, ricBal);
+
+  }
+
 
   // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
   const createFlowOperation = await sf.cfaV1.createFlow({
@@ -204,7 +186,7 @@ let lostStake = ethers.utils.parseEther("0");
 
 describe("REXForce", async function () {
 
-  context.only("#1 - Onboards a captain, modifyCaptainStake", async () => {
+  context("#1 - Onboards a captain, modifyCaptainStake", async () => {
 
     it("#1.1 has first captain", async () => {
       assert.equal(
@@ -253,10 +235,9 @@ describe("REXForce", async function () {
         amount: CAPTAINS_STAKE_AMOUNT
       });
       await ricxApproveOperation.exec(secondCaptain);
-
       await expect(
-        rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
-      )
+          rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
+        )
         .to.emit(rexForce, "CaptainApplied")
         .withArgs(
           "Bob",
@@ -387,7 +368,7 @@ describe("REXForce", async function () {
 
       assert.equal(
         (await rexForce.totalStakedAmount()).toString(),
-        totalStake,
+        totalStake.toString(),
         'TotalStakedAmount incorrect'
       );
 
@@ -410,33 +391,201 @@ describe("REXForce", async function () {
     });
   });
 
-  context("#2 - Offboards a captain", async () => {
+  context.only("#2 - Offboards a captain", async () => {
+
+    before(async function () {
+      // Redeploy fresh RexCaptain contract
+      rexForce = await App.deploy(
+        ricx.address,
+        "Alice",
+        "alice@alice.com",
+        sf.settings.config.hostAddress,
+        sf.settings.config.cfaV1Address,
+        ""
+      );
+
+      await rexForce.deployed();
+      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
+      const createFlowOperation = await sf.cfaV1.createFlow({
+        receiver: rexForce.address,
+        superToken: ricx.address,
+        flowRate: REXFORCE_FLOW_RATE
+      })
+
+      const txn = await createFlowOperation.exec(admin);
+      const receipt = await txn.wait();
+
+      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
+      console.log("go forward in time");
+      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+
+      // Stake the first captain
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+      await rexForce.connect(firstCaptain).modifyCaptainStake();
+
+
+      // Add captains to the contract
+      for(let i = 1; i < captains.length; i++) {
+        // Approve the stake
+        ricxApproveOperation = ricx.approve({
+          receiver: rexForce.address,
+          amount: CAPTAINS_STAKE_AMOUNT
+        });
+        await ricxApproveOperation.exec(captains[i]);
+        // Apply, transfer stake
+        await rexForce.connect(captains[i]).applyForCaptain(`Captain #${i}`, `captain@${i}.com`);
+        // For each captain already added, vote yes
+        for(let j = 0; j < i; j++) {
+          await rexForce.connect(captains[j]).castVote(captains[i].address, true)
+        }
+        // Wait
+        await traveler.advanceTimeAndBlock(VOTING_DURATION);
+        // End the vote to approve the captain
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(captains[i].address)
+      }
+    });
+
     it("#2.1 resignCaptain", async () => {
-      // TODO
+
+
+      // Try to reapply firstCaptain and revert
+      await expect(
+        rexForce.connect(firstCaptain).resignCaptain()
+      )
+      .to.emit(rexForce, "VotingStarted")
+      .withArgs(
+        firstCaptain.address,
+        VOTE_KIND_RESIGN
+      )
+
+      let vote = await rexForce.voteIdToVote(1);
+
     });
 
     it("#2.2 castVote and endCaptainResignVote with a positive vote", async () => {
-      // TODO
+      // Resign First Captain from 2.1
+
+      await expect(
+        rexForce.connect(secondCaptain).castVote(firstCaptain.address, true)
+      )
+      .to.emit(rexForce, "VoteCast")
+      .withArgs(
+        firstCaptain.address,
+        VOTE_KIND_RESIGN,
+        true
+      );
+
+      await rexForce.connect(thirdCaptain).castVote(firstCaptain.address, true)
+      await rexForce.connect(forthCaptain).castVote(firstCaptain.address, false)
+
+      let timestamp = (await ethers.provider.getBlock('latest')).timestamp
+      let nextVoteId = await rexForce.nextVoteId();
+      let vote = await rexForce.voteIdToVote(nextVoteId.sub(1));
+      await expect(vote[0]).to.equal(nextVoteId.sub(1))
+      await expect(vote[1]).to.equal(VOTE_KIND_RESIGN)
+      await expect(vote[2]).to.equal(firstCaptain.address)
+      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp - 5), ethers.BigNumber.from(timestamp + 2))
+      await expect(vote[4]).to.equal(ethers.BigNumber.from(1))
+      await expect(vote[5]).to.equal(ethers.BigNumber.from(2))
+
+      await expect(
+        rexForce.connect(secondCaptain).castVote(firstCaptain.address, true)
+      ).to.be.revertedWith("Already voted");
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainResignVote(firstCaptain.address)
+      ).to.be.revertedWith("Voting duration not expired");
+
+      await traveler.advanceTimeAndBlock(VOTING_DURATION);
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainResignVote(firstCaptain.address)
+      )
+      .to.emit(rexForce, "VotingEnded")
+      .withArgs(
+        firstCaptain.address,
+        VOTE_KIND_RESIGN,
+        true
+      );
+
+      let captainIndex = await rexForce.addressToCaptain(firstCaptain.address);
+      let captain = await rexForce.captains(captainIndex);
+      await expect(captain[1]).to.equal(false);
+      await expect(captain[6]).to.equal(0);
+
+      assert.equal(
+        (await netFlowRate(firstCaptain)).toString(),
+        0,
+        'first captain still getting paid'
+      );
+
+      // First captian should get stake back and some extra for the time they got a stream
+      expect((await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: admin
+      }))).to.be.above(ethers.utils.parseEther("1000000"));
+
+
     });
 
     it("#2.3 castVote and endCaptainResignVote with a negative vote", async () => {
+      // Resign Second Captain dishonorably, take the stake
+      await rexForce.connect(secondCaptain).resignCaptain();
+      await rexForce.connect(thirdCaptain).castVote(secondCaptain.address, false);
+      await rexForce.connect(forthCaptain).castVote(secondCaptain.address, false);
+      await rexForce.connect(fifthCaptain).castVote(secondCaptain.address, true);
+
+      let timestamp = (await ethers.provider.getBlock('latest')).timestamp
+      let nextVoteId = await rexForce.nextVoteId();
+      let vote = await rexForce.voteIdToVote(nextVoteId.sub(1));
+      await expect(vote[0]).to.equal(nextVoteId.sub(1))
+      await expect(vote[1]).to.equal(VOTE_KIND_RESIGN)
+      await expect(vote[2]).to.equal(secondCaptain.address)
+      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp - 5), ethers.BigNumber.from(timestamp + 2))
+      await expect(vote[4]).to.equal(ethers.BigNumber.from(2))
+      await expect(vote[5]).to.equal(ethers.BigNumber.from(1))
+
+      await traveler.advanceTimeAndBlock(VOTING_DURATION);
+
+      await expect(
+        rexForce.connect(secondCaptain).endCaptainResignVote(secondCaptain.address)
+      )
+      .to.emit(rexForce, "VotingEnded")
+      .withArgs(
+        secondCaptain.address,
+        VOTE_KIND_RESIGN,
+        false
+      );
+
+      let captainIndex = await rexForce.addressToCaptain(secondCaptain.address);
+      let captain = await rexForce.captains(captainIndex);
+      await expect(captain[1]).to.equal(false);
+      await expect(captain[6]).to.equal(0);
+
+      expect((await ricx.balanceOf({
+        account: secondCaptain.address,
+        providerOrSigner: admin
+      }))).to.be.within(ethers.utils.parseEther("990000"), ethers.utils.parseEther("992000"));
+    });
+
+    xit("#2.4 disputeCaptain", async () => {
       // TODO
     });
 
-    it("#2.4 disputeCaptain", async () => {
+    xit("#2.5 castVote and endCaptainDisputeVote with a positive vote", async () => {
       // TODO
     });
 
-    it("#2.5 castVote and endCaptainDisputeVote with a positive vote", async () => {
-      // TODO
-    });
-
-    it("#2.6 castVote and endCaptainDisputeVote with a negative vote", async () => {
+    xit("#2.6 castVote and endCaptainDisputeVote with a negative vote", async () => {
       // TODO
     });
   });
 
-  context("#3 - Manages Bounties", async () => {
+  xcontext("#3 - Manages Bounties", async () => {
     it("#3.1 create/approveBounty", async () => {
       // TODO
     });

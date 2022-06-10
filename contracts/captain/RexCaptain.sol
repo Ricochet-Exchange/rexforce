@@ -203,8 +203,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         if (captainsLength % 3 > 0) {
             quorum += 1;
         }
-        console.log(quorum);
-
+        
         require(currentVote.forSum + currentVote.againstSum >= quorum, "Not enough votes");
 
         if (currentVote.forSum > currentVote.againstSum)
@@ -364,6 +363,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         } else {
             // Vote did not pass - stake will not be returned
             totalLostStakeAmount += captain.stakedAmount;
+            captain.stakedAmount = 0;
         }
 
         totalStakedAmount -= captain.stakedAmount;
