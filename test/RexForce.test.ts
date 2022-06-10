@@ -32,6 +32,12 @@ let admin: SignerWithAddress;
 let firstCaptain: SignerWithAddress;
 let secondCaptain: SignerWithAddress;
 let thirdCaptain: SignerWithAddress;
+let forthCaptain: SignerWithAddress;
+let fifthCaptain: SignerWithAddress;
+
+let captains: SignerWithAddress[];
+
+let App: any;
 
 let sf: InstanceType<typeof Framework>;;
 let ric: InstanceType<typeof ricABI>;
@@ -46,7 +52,10 @@ let errorHandler = (err: any) => {
 
 before(async function () {
   //get accounts from hardhat
-  [admin, firstCaptain, secondCaptain, thirdCaptain] = await ethers.getSigners();
+  [admin, firstCaptain, secondCaptain, thirdCaptain, forthCaptain, fifthCaptain ] = await ethers.getSigners();
+
+  captains = [firstCaptain, secondCaptain, thirdCaptain, forthCaptain, fifthCaptain];
+
 
   //deploy the framework
   await deployFramework(errorHandler, {
@@ -93,7 +102,7 @@ before(async function () {
   tellor = await TellorPlayground.deploy("Tributes", "TRB");
   await tellor.deployed();
 
-  let App = await ethers.getContractFactory("REXCaptain", firstCaptain);
+  App = await ethers.getContractFactory("REXCaptain", firstCaptain);
 
   //deploy the contract
   console.log("CFA", sf.settings.config.cfaV1Address)
@@ -348,9 +357,60 @@ describe("REXForce", async function () {
     });
   });
 
-  context("#2 - Offboards a captain", async () => {
+  context.only("#2 - Offboards a captain", async () => {
+
+    before(async function () {
+      // Redeploy fresh RexCaptain contract
+      rexForce = await App.deploy(
+        ricx.address,
+        "Alice",
+        "alice@alice.com",
+        sf.settings.config.hostAddress,
+        sf.settings.config.cfaV1Address,
+        ""
+      );
+
+      await rexForce.deployed();
+      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
+      const createFlowOperation = await sf.cfaV1.createFlow({
+        receiver: rexForce.address,
+        superToken: ricx.address,
+        flowRate: REXFORCE_FLOW_RATE
+      })
+
+      const txn = await createFlowOperation.exec(admin);
+      const receipt = await txn.wait();
+
+      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
+      console.log("go forward in time");
+      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+
+      // Add captains to the contract
+      for(let i = 0; i < captains.length; i++) {
+        // Approve the stake
+        let ricxApproveOperation = ricx.approve({
+          receiver: rexForce.address,
+          amount: CAPTAINS_STAKE_AMOUNT
+        });
+        await ricxApproveOperation.exec(captains[i]);
+        // Apply, transfer stake
+        await rexForce.connect(captains[i]).applyForCaptain(`Captain #${i}`, ~);
+        // For each captain already added, vote yes
+        for(let j = 0; j < i; j++) {
+          await rexForce.connect(captains[j]).castVote(secondCaptain.address, true)
+        }
+        // Wait
+        await traveler.advanceTimeAndBlock(VOTING_DURATION);
+        // End the vote to approve the captain
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(secondCaptain.address)
+      }
+
+
+
+    });
+
     it("#2.1 resignCaptain", async () => {
-      // TODO
+      console.log("TODO")
     });
 
     it("#2.2 castVote and endCaptainResignVote with a positive vote", async () => {
