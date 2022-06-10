@@ -5,7 +5,7 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
-import "./tellor/ITellor.sol";
+import "../tellor/ITellor.sol";
 import { SuperAppBase } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
 import { IConstantFlowAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import { ISuperfluid, ISuperToken, SuperAppDefinitions } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -50,6 +50,8 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     uint256 public totalStakedAmount = 0;
 
+    uint256 public totalLostStakeAmount = 0;
+
     // Vote constants
     uint8 public constant VOTE_KIND_NONE = 0;
     uint8 public constant VOTE_KIND_ONBOARDING = 1;
@@ -75,7 +77,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         IConstantFlowAgreementV1 _cfa,
         string memory _registrationKey
     ) {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender); // ask blue guy (if we want this)
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(CAPTAIN_ROLE, msg.sender);
 
         captains.push(RexCaptainStorage.Captain("Genesis", false, address(0), "genisis@genesis", 0, false, 0, 0));
@@ -189,15 +191,18 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     /// @dev Get the current vote for a captain
     function _getCurrentVote(address captainAddress) internal view returns (RexCaptainStorage.Vote storage vote) {
-        RexCaptainStorage.Captain memory captain = _getCaptain(captainAddress);
+        RexCaptainStorage.Captain memory captain = _getCaptainMemory(captainAddress);
         return voteIdToVote[captain.currentVote];
     }
 
     /// @dev Check if a vote has passed. Quorum is required, and more than half of the votes must be 'for'.
     function _isVotePassed(RexCaptainStorage.Vote storage currentVote) internal view returns (bool) {
+        uint256 captainsLength = getNumberOfCaptains();
+        uint256 quorum = captainsLength / 3;
 
-        // TODO: Double check this, quorum should be 33% fo the captains
-        uint256 quorum = captains.length / 3;
+        if (captainsLength % 3 > 0) {
+            quorum += 1;
+        }
         console.log(quorum);
 
         require(currentVote.forSum + currentVote.againstSum >= quorum, "Not enough votes");
@@ -230,6 +235,18 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
     }
 
     // Public and external functions
+
+    function isCaptainExt(address _addr) external view isCaptain(_addr) {}
+
+    function isCaptainDisputed(address _addr) external view isCaptain(_addr) returns (bool) {
+        RexCaptainStorage.Captain memory captain = _getCaptainMemory(_addr);
+        RexCaptainStorage.Vote storage currentVote = _getCurrentVote(_addr);
+        return captain.voteInProgress && currentVote.kind == VOTE_KIND_DISPUTE;
+    }
+
+    function getNumberOfCaptains() public view returns (uint256) {
+        return getRoleMemberCount(CAPTAIN_ROLE);
+    }
 
     /// @notice Modify the voting duration for RexCaptain votes.
 	/// @param newDuration Name of the captain
@@ -307,7 +324,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
                 captain.stakedAmount // Staked RIC return
             );
             addressToCaptain[captainAddress] = 0;
-            totalStakedAmount -= captainAmountToStake;
+            totalStakedAmount -= captain.stakedAmount;
         }
         _stopVote(captainAddress);
 
@@ -344,6 +361,9 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
             );
 
             addressToCaptain[captainAddress] = 0; // If failed and approved != 0 means dishonorable resignation
+        } else {
+            // Vote did not pass - stake will not be returned
+            totalLostStakeAmount += captain.stakedAmount;
         }
 
         totalStakedAmount -= captain.stakedAmount;
@@ -367,6 +387,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
             address(this),
             disputeAmountToStake // 1k RIC transfer
         );
+        totalStakedAmount += disputeAmountToStake;
 
         RexCaptainStorage.Captain storage captain = _getCaptain(captainAddress);
         captain.disputeStakedAmount = disputeAmountToStake;
@@ -395,13 +416,23 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
                 currentVote.proposer,
                 captain.disputeStakedAmount
             );
+            // Dispute stake returned
+            totalStakedAmount -= captain.disputeStakedAmount;
 
-            captain.disputeStakedAmount = 0;
+            // Captain stake will not be returned
+            totalStakedAmount -= captain.stakedAmount;
+            totalLostStakeAmount += captain.stakedAmount;
+
             _revokeRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = false;
             _manageCaptainStream(captainAddress, FLOW_TERMINATE);
+        } else {
+            // Dispute stake will not be returned
+            totalStakedAmount -= captain.disputeStakedAmount;
+            totalLostStakeAmount += captain.disputeStakedAmount;
         }
 
+        captain.disputeStakedAmount = 0;
         _stopVote(captainAddress);
 
         emit VotingEnded(captainAddress, VOTE_KIND_DISPUTE, passed);
@@ -463,6 +494,14 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         } else {
           _manageCaptainStream(msg.sender, FLOW_UPDATE);
         }
+    }
+
+    /// @notice Withdraw lost stake.
+    /// @param amount Amount to withdraw.
+    function withdrawLostStake(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(ricAddress.balanceOf(address(this)) >= amount, "Not enough funds");
+        ricAddress.safeTransfer(msg.sender, totalLostStakeAmount);
+        totalLostStakeAmount -= amount;
     }
 
     /// @notice Emergency use only: withdraw all funds from contract.

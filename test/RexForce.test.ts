@@ -5,7 +5,7 @@ let { expect, assert } = require("chai");
 let { ethers, web3 } = require("hardhat");
 let ricABI = require("./abis/fDAIABI");
 import traveler from "ganache-time-traveler";
-import { REXCaptain  } from "../typechain";
+import { REXCaptain } from "../typechain";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
@@ -199,6 +199,9 @@ async function netFlowRate(user: any) {
   return flow;
 }
 
+let totalStake = ethers.utils.parseEther("0");
+let lostStake = ethers.utils.parseEther("0");
+
 describe("REXForce", async function () {
 
   context.only("#1 - Onboards a captain, modifyCaptainStake", async () => {
@@ -222,6 +225,7 @@ describe("REXForce", async function () {
       await ricxApproveOperation.exec(firstCaptain);
 
       await rexForce.connect(firstCaptain).modifyCaptainStake();
+      totalStake = totalStake.add(CAPTAINS_STAKE_AMOUNT);
 
       // TODO
       assert.equal(
@@ -249,9 +253,10 @@ describe("REXForce", async function () {
         amount: CAPTAINS_STAKE_AMOUNT
       });
       await ricxApproveOperation.exec(secondCaptain);
+
       await expect(
-          rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
-        )
+        rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
+      )
         .to.emit(rexForce, "CaptainApplied")
         .withArgs(
           "Bob",
@@ -263,27 +268,28 @@ describe("REXForce", async function () {
           VOTE_KIND_ONBOARDING
         )
 
+      totalStake = totalStake.add(CAPTAINS_STAKE_AMOUNT);
     });
 
     it("#1.3 castVote and endCaptainOnboardingVote with yes vote", async () => {
 
       // firstCaptain votes to approve secondCaptain
       await expect(
-          rexForce.connect(firstCaptain).castVote(secondCaptain.address, true)
+        rexForce.connect(firstCaptain).castVote(secondCaptain.address, true)
       )
-      .to.emit(rexForce, "VoteCast")
-      .withArgs(
-        secondCaptain.address,
-        VOTE_KIND_ONBOARDING,
-        true
-      );
+        .to.emit(rexForce, "VoteCast")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_ONBOARDING,
+          true
+        );
 
       let timestamp = (await ethers.provider.getBlock('latest')).timestamp
       let vote = await rexForce.voteIdToVote(1);
       await expect(vote[0]).to.equal(ethers.BigNumber.from(1))
       await expect(vote[1]).to.equal(VOTE_KIND_ONBOARDING)
       await expect(vote[2]).to.equal(secondCaptain.address)
-      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp-2), ethers.BigNumber.from(timestamp+2))
+      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp - 2), ethers.BigNumber.from(timestamp + 2))
       await expect(vote[4]).to.equal(ethers.BigNumber.from(0))
       await expect(vote[5]).to.equal(ethers.BigNumber.from(1))
 
@@ -298,15 +304,32 @@ describe("REXForce", async function () {
       await traveler.advanceTimeAndBlock(VOTING_DURATION);
 
       await expect(
-          rexForce.connect(firstCaptain).endCaptainOnboardingVote(secondCaptain.address)
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(secondCaptain.address)
       )
-      .to.emit(rexForce, "VotingEnded")
-      .withArgs(
-        secondCaptain.address,
-        VOTE_KIND_ONBOARDING,
-        true
+        .to.emit(rexForce, "VotingEnded")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_ONBOARDING,
+          true
+        );
+
+      let captainIndex = await rexForce.addressToCaptain(secondCaptain.address);
+      await expect(captainIndex).to.not.equal(ethers.BigNumber.from(0));
+
+      let captain = await rexForce.captains(captainIndex);
+      await expect(captain[1]).to.equal(true);
+      await expect(captain[6]).to.equal(CAPTAINS_STAKE_AMOUNT);
+
+      assert.equal(
+        (await netFlowRate(secondCaptain)).toString(),
+        CAPTAINS_FLOW_RATE,
+        'second captain not paid'
       );
 
+      expect((await ricx.balanceOf({
+        account: secondCaptain.address,
+        providerOrSigner: admin
+      }))).to.equal(ethers.utils.parseEther("990000"));
     });
 
     it("#1.4 castVote and endCaptainOnboardingVote with no vote", async () => {
@@ -318,8 +341,8 @@ describe("REXForce", async function () {
       await ricxApproveOperation.exec(thirdCaptain);
 
       await expect(
-          rexForce.connect(thirdCaptain).applyForCaptain("Carl", "carl@carl.com")
-        )
+        rexForce.connect(thirdCaptain).applyForCaptain("Carl", "carl@carl.com")
+      )
         .to.emit(rexForce, "CaptainApplied")
         .withArgs(
           "Carl",
@@ -331,20 +354,59 @@ describe("REXForce", async function () {
           VOTE_KIND_ONBOARDING
         )
 
+      totalStake = totalStake.add(CAPTAINS_STAKE_AMOUNT);
+
       await rexForce.connect(firstCaptain).castVote(thirdCaptain.address, false);
 
       await traveler.advanceTimeAndBlock(VOTING_DURATION);
 
+      // Change stake amount temporarily to ensure the correct stake is returned
       await expect(
-          rexForce.connect(firstCaptain).endCaptainOnboardingVote(thirdCaptain.address)
+        rexForce.connect(firstCaptain).modifyCaptainAmountToStake(CAPTAINS_STAKE_AMOUNT.mul(2))
       )
-      .to.emit(rexForce, "VotingEnded")
-      .withArgs(
-        thirdCaptain.address,
-        VOTE_KIND_ONBOARDING,
-        false
+        .to.emit(rexForce, "CaptainStakeChanged")
+        .withArgs(
+          CAPTAINS_STAKE_AMOUNT,
+          CAPTAINS_STAKE_AMOUNT.mul(2)
+        );
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(thirdCaptain.address)
+      )
+        .to.emit(rexForce, "VotingEnded")
+        .withArgs(
+          thirdCaptain.address,
+          VOTE_KIND_ONBOARDING,
+          false
+        );
+
+      totalStake = totalStake.sub(CAPTAINS_STAKE_AMOUNT);
+
+      console.log("totalStake = " + totalStake);
+      console.log("stakedAmount from contract = " + await rexForce.totalStakedAmount())
+
+      assert.equal(
+        (await rexForce.totalStakedAmount()).toString(),
+        totalStake,
+        'TotalStakedAmount incorrect'
       );
 
+      let captainIndex = await rexForce.addressToCaptain(thirdCaptain.address);
+      await expect(captainIndex).to.equal(ethers.BigNumber.from(0));
+
+      assert.equal(
+        (await netFlowRate(thirdCaptain)).toString(),
+        ethers.utils.parseEther("0"),
+        'third captain getting paid'
+      );
+
+      expect((await ricx.balanceOf({
+        account: thirdCaptain.address,
+        providerOrSigner: admin
+      }))).to.equal(ethers.utils.parseEther("1000000"));
+
+      // Set the stake amount back to its original value
+      rexForce.connect(firstCaptain).modifyCaptainAmountToStake(CAPTAINS_STAKE_AMOUNT);
     });
   });
 
