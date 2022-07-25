@@ -372,7 +372,7 @@ describe("REXForce", async function () {
         );
 
       totalStake = totalStake.sub(CAPTAINS_STAKE_AMOUNT);
-      
+
       assert.equal(
         (await rexForce.totalStakedAmount()).toString(),
         totalStake.toString(),
@@ -497,6 +497,14 @@ describe("REXForce", async function () {
       await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp - 5), ethers.BigNumber.from(timestamp + 2))
       await expect(vote[4]).to.equal(ethers.BigNumber.from(1))
       await expect(vote[5]).to.equal(ethers.BigNumber.from(2))
+
+      await expect(
+        rexForce.connect(secondCaptain).castVote(firstCaptain.address, true)
+      ).to.be.revertedWith("Already voted");
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainResignVote(firstCaptain.address)
+      ).to.be.revertedWith("Voting duration not expired");
 
       await traveler.advanceTimeAndBlock(VOTING_DURATION);
 
