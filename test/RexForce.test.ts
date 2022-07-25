@@ -581,7 +581,7 @@ describe("REXForce", async function () {
 
   });
 
-  context("#3 - Disputes a captain", async () => {
+  context.only("#3 - Disputes a captain", async () => {
 
     before(async function () {
       // Redeploy fresh RexCaptain contract
@@ -793,6 +793,25 @@ describe("REXForce", async function () {
 
       expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
       expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("11000"))
+    });
+
+    it("#3.4 withdrawLostStake", async () => {
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("11000"))
+      let beforeBal = await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: firstCaptain
+      });
+      beforeBal = ethers.BigNumber.from(beforeBal);
+      // TODO: Create an admin, remove firstCaptain as admin
+      await rexForce.connect(firstCaptain).withdrawLostStake(ethers.utils.parseEther("11000"));
+      let afterBal = await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: firstCaptain
+      });
+      afterBal = ethers.BigNumber.from(afterBal);
+
+      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("11000"),ethers.utils.parseEther("11001"));
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
 
     });
   });
