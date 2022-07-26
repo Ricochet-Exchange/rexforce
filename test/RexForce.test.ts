@@ -5,7 +5,7 @@ let { expect, assert } = require("chai");
 let { ethers, web3 } = require("hardhat");
 let ricABI = require("./abis/fDAIABI");
 import traveler from "ganache-time-traveler";
-import { REXCaptain } from "../typechain";
+import { REXCaptain, REXBounty } from "../typechain";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
@@ -39,12 +39,14 @@ let fifthCaptain: SignerWithAddress;
 let captains: SignerWithAddress[];
 
 let App: any;
+let RexBounty: any;
 
 let sf: InstanceType<typeof Framework>;;
 let ric: InstanceType<typeof ricABI>;
 let ricx: InstanceType<typeof ricABI>;
 let superSigner: InstanceType<typeof sf.createSigner>;
 let rexForce: InstanceType<typeof REXCaptain>;
+let rexBounty: InstanceType<typeof REXBounty>;
 let tellor;
 
 let errorHandler = (err: any) => {
@@ -117,7 +119,6 @@ before(async function () {
   );
 
   await rexForce.deployed();
-
 
   await ric.mint(
     admin.address, ethers.utils.parseEther("1000000")
@@ -581,7 +582,7 @@ describe("REXForce", async function () {
 
   });
 
-  context.only("#3 - Disputes a captain", async () => {
+  context("#3 - Disputes a captain", async () => {
 
     before(async function () {
       // Redeploy fresh RexCaptain contract
@@ -816,9 +817,158 @@ describe("REXForce", async function () {
     });
   });
 
-  xcontext("#4 - Manages Bounties", async () => {
-    it("#4.1 create/approveBounty", async () => {
-      // TODO
+  context.only("#4 - Manages Bounties", async () => {
+
+    before(async function() {
+
+      // Setup Rexforce with 5 captains:
+      rexForce = await App.deploy(
+        ricx.address,
+        "Alice",
+        "alice@alice.com",
+        sf.settings.config.hostAddress,
+        sf.settings.config.cfaV1Address,
+        ""
+      );
+
+      await rexForce.deployed();
+      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
+      const createFlowOperation = await sf.cfaV1.createFlow({
+        receiver: rexForce.address,
+        superToken: ricx.address,
+        flowRate: REXFORCE_FLOW_RATE
+      })
+
+      const txn = await createFlowOperation.exec(admin);
+      const receipt = await txn.wait();
+
+      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
+      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+
+      // Stake the first captain
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+      await rexForce.connect(firstCaptain).modifyCaptainStake();
+
+
+      // Add captains to the contract
+      for(let i = 1; i < captains.length; i++) {
+        // Approve the stake
+        ricxApproveOperation = ricx.approve({
+          receiver: rexForce.address,
+          amount: CAPTAINS_STAKE_AMOUNT
+        });
+        await ricxApproveOperation.exec(captains[i]);
+        // Apply, transfer stake
+        await rexForce.connect(captains[i]).applyForCaptain(`Captain #${i}`, `captain@${i}.com`);
+        // For each captain already added, vote yes
+        for(let j = 0; j < i; j++) {
+          await rexForce.connect(captains[j]).castVote(captains[i].address, true)
+        }
+        // Wait
+        await traveler.advanceTimeAndBlock(VOTING_DURATION);
+        // End the vote to approve the captain
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(captains[i].address)
+      }
+
+      // Setup RexBounty
+      RexBounty = await ethers.getContractFactory("REXBounty", firstCaptain);
+      rexBounty = await RexBounty.deploy(rexForce.address, ricx.address);
+      console.log("Deployed rexBounty:", rexBounty.address);
+
+      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
+      const createFlowOperation2 = await sf.cfaV1.createFlow({
+        receiver: rexBounty.address,
+        superToken: ricx.address,
+        flowRate: REXFORCE_FLOW_RATE
+      })
+
+      const txn2 = await createFlowOperation2.exec(admin);
+      const receipt2 = await txn2.wait();
+
+      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
+      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+
+
+
+    });
+    it("#4.1 captain can createBounty", async () => {
+      let ipfsHash = 'https://github.com/Ricochet-Exchange/ricochet-frontend/issues/1';
+      await expect(
+        rexBounty.connect(secondCaptain).createBounty(ethers.utils.parseEther("10000"), ipfsHash)
+      )
+      .to.emit(rexBounty, "BountyCreated")
+      .withArgs(
+        0,
+        secondCaptain.address,
+        ipfsHash
+      );
+
+    });
+
+    it("#4.2 captain can approveBounty", async () => {
+
+      await expect(
+        rexBounty.connect(secondCaptain).approveBounty(1)
+      ).to.be.revertedWith("Bounty does not exist");
+
+      await expect(
+        rexBounty.connect(secondCaptain).approveBounty(0)
+      ).to.be.revertedWith("Cannot approve own bounty");
+
+
+      await expect(
+        rexBounty.connect(thirdCaptain).approveBounty(0)
+      )
+      .to.emit(rexBounty, "BountyApproved")
+      .withArgs(
+        0,
+        thirdCaptain.address
+      );
+
+    });
+
+
+    it("#4.3 captain can approvePayout", async () => {
+
+      let beforeBal = await ricx.balanceOf({
+        account: fifthCaptain.address,
+        providerOrSigner: admin
+      });
+      beforeBal = ethers.BigNumber.from(beforeBal);
+
+      console.log("1")
+      await expect(
+        rexBounty.connect(secondCaptain).approvePayout(1, fifthCaptain.address)
+      ).to.be.revertedWith("Bounty does not exist");
+
+      // TODO: Test disputed captain can't approve
+
+      console.log("3")
+      await expect(
+        rexBounty.connect(secondCaptain).approvePayout(0, fifthCaptain.address)
+      )
+      .to.emit(rexBounty, "BountyPayoutApproved")
+      .withArgs(
+        0,
+        fifthCaptain.address,
+        true
+      );
+
+      console.log("4")
+
+
+      let afterBal = await ricx.balanceOf({
+        account: fifthCaptain.address,
+        providerOrSigner: admin
+      });
+      afterBal = ethers.BigNumber.from(afterBal);
+
+      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("10000"),ethers.utils.parseEther("10001"));
+
     });
 
     it("#4.2 resetBountyPayee", async () => {
