@@ -940,14 +940,12 @@ describe("REXForce", async function () {
       });
       beforeBal = ethers.BigNumber.from(beforeBal);
 
-      console.log("1")
       await expect(
         rexBounty.connect(secondCaptain).approvePayout(1, fifthCaptain.address)
       ).to.be.revertedWith("Bounty does not exist");
 
       // TODO: Test disputed captain can't approve
 
-      console.log("3")
       await expect(
         rexBounty.connect(secondCaptain).approvePayout(0, fifthCaptain.address)
       )
@@ -957,8 +955,6 @@ describe("REXForce", async function () {
         fifthCaptain.address,
         true
       );
-
-      console.log("4")
 
 
       let afterBal = await ricx.balanceOf({
