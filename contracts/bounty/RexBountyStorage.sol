@@ -15,9 +15,4 @@ library RexBountyStorage {
         address[] approvals; // Number of votes for the bounty
     }
 
-    struct OracleInfo {
-        uint256 requestId;
-        uint256 usdPrice;
-        uint256 lastUpdatedAt;
-    }
 }
