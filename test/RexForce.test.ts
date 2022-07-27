@@ -47,7 +47,6 @@ let ricx: InstanceType<typeof ricABI>;
 let superSigner: InstanceType<typeof sf.createSigner>;
 let rexForce: InstanceType<typeof REXCaptain>;
 let rexBounty: InstanceType<typeof REXBounty>;
-let tellor;
 
 let errorHandler = (err: any) => {
   if (err) throw err;
@@ -78,9 +77,6 @@ before(async function () {
     from: admin.address,
   });
 
-  console.log("fDAIxAddress: ", fDAIxAddress);
-  console.log("fDAIAddress: ", fDAIAddress);
-
   //initialize the superfluid framework...put custom and web3 only bc we are using hardhat locally
   sf = await Framework.create({
     networkName: "custom",
@@ -101,14 +97,10 @@ before(async function () {
   //get the contract object for the erc20 token
   let ricAddress = ricx.underlyingToken.address;
   ric = new ethers.Contract(ricAddress, ricABI, admin);
-  const TellorPlayground = await ethers.getContractFactory('TellorPlayground');
-  tellor = await TellorPlayground.deploy("Tributes", "TRB");
-  await tellor.deployed();
 
   App = await ethers.getContractFactory("REXCaptain", firstCaptain);
 
   //deploy the contract
-  console.log("CFA", sf.settings.config.cfaV1Address)
   rexForce = await App.deploy(
     ricx.address,
     "Alice",
@@ -121,12 +113,12 @@ before(async function () {
   await rexForce.deployed();
 
   await ric.mint(
-    admin.address, ethers.utils.parseEther("1000000")
+    admin.address, ethers.utils.parseEther("10000000")
   );
-  await ric.connect(admin).approve(ricx.address, ethers.utils.parseEther("1000000"));
+  await ric.connect(admin).approve(ricx.address, ethers.utils.parseEther("10000000"));
 
   let ricxUpgradeOperation = ricx.upgrade({
-    amount: ethers.utils.parseEther("1000000")
+    amount: ethers.utils.parseEther("10000000")
   });
   await ricxUpgradeOperation.exec(admin);
 
@@ -817,7 +809,7 @@ describe("REXForce", async function () {
     });
   });
 
-  context.only("#4 - Manages Bounties", async () => {
+  context("#4 - Manages Bounties", async () => {
 
     before(async function() {
 
@@ -833,17 +825,16 @@ describe("REXForce", async function () {
 
       await rexForce.deployed();
       // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
-      const createFlowOperation = await sf.cfaV1.createFlow({
+      let beforeBal = await ricx.balanceOf({
+        account: admin.address,
+        providerOrSigner: admin
+      });
+      await ricx.transfer(rexForce.address, ethers.utils.parseEther("100000"));
+      let transferOperation = ricx.transfer({
         receiver: rexForce.address,
-        superToken: ricx.address,
-        flowRate: REXFORCE_FLOW_RATE
-      })
-
-      const txn = await createFlowOperation.exec(admin);
-      const receipt = await txn.wait();
-
-      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
-      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+        amount: ethers.utils.parseEther("100000")
+      });
+      await transferOperation.exec(admin);
 
       // Stake the first captain
       let ricxApproveOperation = ricx.approve({
@@ -877,24 +868,18 @@ describe("REXForce", async function () {
       // Setup RexBounty
       RexBounty = await ethers.getContractFactory("REXBounty", firstCaptain);
       rexBounty = await RexBounty.deploy(rexForce.address, ricx.address);
-      console.log("Deployed rexBounty:", rexBounty.address);
 
-      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
-      const createFlowOperation2 = await sf.cfaV1.createFlow({
+      await ricx.transfer(rexForce.address, ethers.utils.parseEther("100000"));
+      transferOperation = ricx.transfer({
         receiver: rexBounty.address,
-        superToken: ricx.address,
-        flowRate: REXFORCE_FLOW_RATE
-      })
-
-      const txn2 = await createFlowOperation2.exec(admin);
-      const receipt2 = await txn2.wait();
-
-      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
-      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+        amount: ethers.utils.parseEther("100000")
+      });
+      await transferOperation.exec(admin);
 
 
 
     });
+
     it("#4.1 captain can createBounty", async () => {
       let ipfsHash = 'https://github.com/Ricochet-Exchange/ricochet-frontend/issues/1';
       await expect(
@@ -967,13 +952,6 @@ describe("REXForce", async function () {
 
     });
 
-    it("#4.2 resetBountyPayee", async () => {
-      // TODO
-    });
-
-    it("#4.3 approvePayout", async () => {
-      // TODO
-    });
   });
 
 });
