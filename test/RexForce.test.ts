@@ -5,7 +5,7 @@ let { expect, assert } = require("chai");
 let { ethers, web3 } = require("hardhat");
 let ricABI = require("./abis/fDAIABI");
 import traveler from "ganache-time-traveler";
-import { REXCaptain } from "../typechain";
+import { REXCaptain, REXBounty } from "../typechain";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
@@ -13,6 +13,7 @@ const VOTING_DURATION = 60 * 60 * 24 * 14;
 const CAPTAINS_FLOW_RATE = "317097919837645";
 const REXFORCE_FLOW_RATE = "31709791983764500";
 const CAPTAINS_STAKE_AMOUNT = ethers.utils.parseEther("10000");
+const CAPTAINS_DISPUTE_AMOUNT = ethers.utils.parseEther("1000");
 
 const VOTE_KIND_NONE = 0;
 const VOTE_KIND_ONBOARDING = 1;
@@ -38,13 +39,14 @@ let fifthCaptain: SignerWithAddress;
 let captains: SignerWithAddress[];
 
 let App: any;
+let RexBounty: any;
 
 let sf: InstanceType<typeof Framework>;;
 let ric: InstanceType<typeof ricABI>;
 let ricx: InstanceType<typeof ricABI>;
 let superSigner: InstanceType<typeof sf.createSigner>;
 let rexForce: InstanceType<typeof REXCaptain>;
-let tellor;
+let rexBounty: InstanceType<typeof REXBounty>;
 
 let errorHandler = (err: any) => {
   if (err) throw err;
@@ -75,9 +77,6 @@ before(async function () {
     from: admin.address,
   });
 
-  console.log("fDAIxAddress: ", fDAIxAddress);
-  console.log("fDAIAddress: ", fDAIAddress);
-
   //initialize the superfluid framework...put custom and web3 only bc we are using hardhat locally
   sf = await Framework.create({
     networkName: "custom",
@@ -98,14 +97,10 @@ before(async function () {
   //get the contract object for the erc20 token
   let ricAddress = ricx.underlyingToken.address;
   ric = new ethers.Contract(ricAddress, ricABI, admin);
-  const TellorPlayground = await ethers.getContractFactory('TellorPlayground');
-  tellor = await TellorPlayground.deploy("Tributes", "TRB");
-  await tellor.deployed();
 
   App = await ethers.getContractFactory("REXCaptain", firstCaptain);
 
   //deploy the contract
-  console.log("CFA", sf.settings.config.cfaV1Address)
   rexForce = await App.deploy(
     ricx.address,
     "Alice",
@@ -117,14 +112,13 @@ before(async function () {
 
   await rexForce.deployed();
 
-
   await ric.mint(
-    admin.address, ethers.utils.parseEther("1000000")
+    admin.address, ethers.utils.parseEther("10000000")
   );
-  await ric.connect(admin).approve(ricx.address, ethers.utils.parseEther("1000000"));
+  await ric.connect(admin).approve(ricx.address, ethers.utils.parseEther("10000000"));
 
   let ricxUpgradeOperation = ricx.upgrade({
-    amount: ethers.utils.parseEther("1000000")
+    amount: ethers.utils.parseEther("10000000")
   });
   await ricxUpgradeOperation.exec(admin);
 
@@ -163,7 +157,6 @@ before(async function () {
   const receipt = await txn.wait();
 
   // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
-  console.log("go forward in time");
   await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
 
 });
@@ -172,13 +165,23 @@ beforeEach(async function () {
   // TODO
 });
 
-async function netFlowRate(user: any) {
+async function netFlowRate(user: any, signer: any) {
   const flow = await sf.cfaV1.getNetFlow({
     superToken: ricx.address,
     account: user.address,
     providerOrSigner: superSigner
   });
   return flow;
+}
+
+async function getFlow(sender: any, receiver: any) {
+  const flow = await sf.cfaV1.getFlow({
+    superToken: ricx.address,
+    sender: sender,
+    receiver: receiver,
+    providerOrSigner: superSigner
+  });
+  return flow.flowRate;
 }
 
 let totalStake = ethers.utils.parseEther("0");
@@ -211,7 +214,7 @@ describe("REXForce", async function () {
 
       // TODO
       assert.equal(
-        (await netFlowRate(firstCaptain)).toString(),
+        (await getFlow(rexForce.address, firstCaptain.address)).toString(),
         CAPTAINS_FLOW_RATE,
         'first captain not paid'
       );
@@ -302,7 +305,7 @@ describe("REXForce", async function () {
       await expect(captain[6]).to.equal(CAPTAINS_STAKE_AMOUNT);
 
       assert.equal(
-        (await netFlowRate(secondCaptain)).toString(),
+        (await getFlow(rexForce.address, secondCaptain.address)).toString(),
         CAPTAINS_FLOW_RATE,
         'second captain not paid'
       );
@@ -363,9 +366,6 @@ describe("REXForce", async function () {
 
       totalStake = totalStake.sub(CAPTAINS_STAKE_AMOUNT);
 
-      console.log("totalStake = " + totalStake);
-      console.log("stakedAmount from contract = " + await rexForce.totalStakedAmount())
-
       assert.equal(
         (await rexForce.totalStakedAmount()).toString(),
         totalStake.toString(),
@@ -376,7 +376,7 @@ describe("REXForce", async function () {
       await expect(captainIndex).to.equal(ethers.BigNumber.from(0));
 
       assert.equal(
-        (await netFlowRate(thirdCaptain)).toString(),
+        (await getFlow(rexForce.address, thirdCaptain.address)).toString(),
         ethers.utils.parseEther("0"),
         'third captain getting paid'
       );
@@ -391,7 +391,7 @@ describe("REXForce", async function () {
     });
   });
 
-  context.only("#2 - Offboards a captain", async () => {
+  context("#2 - Resign a captain", async () => {
 
     before(async function () {
       // Redeploy fresh RexCaptain contract
@@ -416,7 +416,6 @@ describe("REXForce", async function () {
       const receipt = await txn.wait();
 
       // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
-      console.log("go forward in time");
       await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
 
       // Stake the first captain
@@ -462,7 +461,7 @@ describe("REXForce", async function () {
         VOTE_KIND_RESIGN
       )
 
-      let vote = await rexForce.voteIdToVote(1);
+      // TODO: More expects?
 
     });
 
@@ -518,21 +517,18 @@ describe("REXForce", async function () {
       await expect(captain[6]).to.equal(0);
 
       assert.equal(
-        (await netFlowRate(firstCaptain)).toString(),
+        (await getFlow(rexForce.address, firstCaptain.address)).toString(),
         0,
         'first captain still getting paid'
       );
 
-      // First captian should get stake back and some extra for the time they got a stream
-      expect((await ricx.balanceOf({
-        account: firstCaptain.address,
-        providerOrSigner: admin
-      }))).to.be.above(ethers.utils.parseEther("1000000"));
-
-
     });
 
     it("#2.3 castVote and endCaptainResignVote with a negative vote", async () => {
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
+
+
       // Resign Second Captain dishonorably, take the stake
       await rexForce.connect(secondCaptain).resignCaptain();
       await rexForce.connect(thirdCaptain).castVote(secondCaptain.address, false);
@@ -566,37 +562,396 @@ describe("REXForce", async function () {
       await expect(captain[1]).to.equal(false);
       await expect(captain[6]).to.equal(0);
 
-      expect((await ricx.balanceOf({
-        account: secondCaptain.address,
+      // expect((await ricx.balanceOf({
+      //   account: secondCaptain.address,
+      //   providerOrSigner: admin
+      // }))).to.be.within(ethers.utils.parseEther("990000"), ethers.utils.parseEther("992000"));
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("10000"))
+
+
+    });
+
+  });
+
+  context("#3 - Disputes a captain", async () => {
+
+    before(async function () {
+      // Redeploy fresh RexCaptain contract
+      rexForce = await App.deploy(
+        ricx.address,
+        "Alice",
+        "alice@alice.com",
+        sf.settings.config.hostAddress,
+        sf.settings.config.cfaV1Address,
+        ""
+      );
+
+      await rexForce.deployed();
+      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
+      const createFlowOperation = await sf.cfaV1.createFlow({
+        receiver: rexForce.address,
+        superToken: ricx.address,
+        flowRate: REXFORCE_FLOW_RATE
+      })
+
+      const txn = await createFlowOperation.exec(admin);
+      const receipt = await txn.wait();
+
+      // Fast forward 1 month to fund the contract with enough RIC to pay rexforce
+      await traveler.advanceTimeAndBlock(ONE_MONTH_TRAVEL_TIME);
+
+      // Stake the first captain
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+      await rexForce.connect(firstCaptain).modifyCaptainStake();
+
+
+      // Add captains to the contract
+      for(let i = 1; i < captains.length; i++) {
+        // Approve the stake
+        ricxApproveOperation = ricx.approve({
+          receiver: rexForce.address,
+          amount: CAPTAINS_STAKE_AMOUNT
+        });
+        await ricxApproveOperation.exec(captains[i]);
+        // Apply, transfer stake
+        await rexForce.connect(captains[i]).applyForCaptain(`Captain #${i}`, `captain@${i}.com`);
+        // For each captain already added, vote yes
+        for(let j = 0; j < i; j++) {
+          await rexForce.connect(captains[j]).castVote(captains[i].address, true)
+        }
+        // Wait
+        await traveler.advanceTimeAndBlock(VOTING_DURATION);
+        // End the vote to approve the captain
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(captains[i].address)
+      }
+
+    });
+
+    it("#3.1 disputeCaptain", async () => {
+      // 5 captains staked initially
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("50000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
+      // Dispute secondCaptain
+      let beforeDisputeBal = await ricx.balanceOf({
+        account: firstCaptain.address,
         providerOrSigner: admin
-      }))).to.be.within(ethers.utils.parseEther("990000"), ethers.utils.parseEther("992000"));
+      });
+
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_DISPUTE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+
+      await expect(
+        rexForce.connect(firstCaptain).disputeCaptain(secondCaptain.address)
+      )
+      .to.emit(rexForce, "VotingStarted")
+      .withArgs(
+        secondCaptain.address,
+        VOTE_KIND_DISPUTE
+      )
+
+      expect((await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: admin
+      }))).to.be.within(ethers.BigNumber.from(beforeDisputeBal).sub(ethers.utils.parseEther("1001")), ethers.BigNumber.from(beforeDisputeBal).sub(ethers.utils.parseEther("999")));
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("51000"))
+
+      let vote = await rexForce.voteIdToVote(1);
+      // TODO: check properties for the vote
     });
 
-    xit("#2.4 disputeCaptain", async () => {
-      // TODO
+    it("#3.2 castVote and endCaptainDisputeVote with a positive vote", async () => {
+
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("51000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
+
+      await expect(
+        rexForce.connect(firstCaptain).castVote(secondCaptain.address, true)
+      )
+      .to.emit(rexForce, "VoteCast")
+      .withArgs(
+        secondCaptain.address,
+        VOTE_KIND_DISPUTE,
+        true
+      );
+
+      await rexForce.connect(thirdCaptain).castVote(secondCaptain.address, true)
+      await rexForce.connect(forthCaptain).castVote(secondCaptain.address, false)
+
+      let timestamp = (await ethers.provider.getBlock('latest')).timestamp
+      let nextVoteId = await rexForce.nextVoteId();
+      let vote = await rexForce.voteIdToVote(nextVoteId.sub(1));
+      await expect(vote[0]).to.equal(nextVoteId.sub(1))
+      await expect(vote[1]).to.equal(VOTE_KIND_DISPUTE)
+      await expect(vote[2]).to.equal(secondCaptain.address)
+      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp - 5), ethers.BigNumber.from(timestamp + 2))
+      await expect(vote[4]).to.equal(ethers.BigNumber.from(1))
+      await expect(vote[5]).to.equal(ethers.BigNumber.from(2))
+
+      await traveler.advanceTimeAndBlock(VOTING_DURATION);
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainDisputeVote(secondCaptain.address)
+      )
+      .to.emit(rexForce, "VotingEnded")
+      .withArgs(
+        secondCaptain.address,
+        VOTE_KIND_DISPUTE,
+        true
+      );
+      let captainIndex = await rexForce.addressToCaptain(secondCaptain.address);
+      let captain = await rexForce.captains(captainIndex);
+      await expect(captain[1]).to.equal(false);
+      await expect(captain[6]).to.equal(0);
+
+      assert.equal(
+        (await getFlow(rexForce.address, secondCaptain.address)).toString(),
+        0,
+        'second captain still getting paid'
+      );
+
+      // First captian should get stake back and some extra for the time they got a stream
+      // expect((await ricx.balanceOf({
+      //   account: firstCaptain.address,
+      //   providerOrSigner: admin
+      // }))).to.be.above(ethers.utils.parseEther("1000000"));
+
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("10000"))
+
+
+      // Test withdraw the stake
+      let beforeDisputeBal = await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: admin
+      });
+
     });
 
-    xit("#2.5 castVote and endCaptainDisputeVote with a positive vote", async () => {
-      // TODO
+    it("#3.3 castVote and endCaptainDisputeVote with a negative vote", async () => {
+
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("10000"))
+
+      let captainIndex = await rexForce.addressToCaptain(thirdCaptain.address);
+      let captain = await rexForce.captains(captainIndex);
+      await expect(captain[1]).to.equal(true);
+      await expect(captain[6]).to.equal(ethers.utils.parseEther("10000"));
+
+
+      // start a dispute
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_DISPUTE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+      await rexForce.connect(firstCaptain).disputeCaptain(thirdCaptain.address);
+
+      await rexForce.connect(firstCaptain).castVote(thirdCaptain.address, false);
+      await rexForce.connect(forthCaptain).castVote(thirdCaptain.address, true)
+      await rexForce.connect(fifthCaptain).castVote(thirdCaptain.address, false)
+
+      let timestamp = (await ethers.provider.getBlock('latest')).timestamp
+      let nextVoteId = await rexForce.nextVoteId();
+      let vote = await rexForce.voteIdToVote(nextVoteId.sub(1));
+      await expect(vote[0]).to.equal(nextVoteId.sub(1))
+      await expect(vote[1]).to.equal(VOTE_KIND_DISPUTE)
+      await expect(vote[2]).to.equal(thirdCaptain.address)
+      await expect(vote[3]).to.be.within(ethers.BigNumber.from(timestamp - 5), ethers.BigNumber.from(timestamp + 2))
+      await expect(vote[4]).to.equal(ethers.BigNumber.from(2))
+      await expect(vote[5]).to.equal(ethers.BigNumber.from(1))
+
+      await traveler.advanceTimeAndBlock(VOTING_DURATION);
+
+      await expect(
+        rexForce.connect(firstCaptain).endCaptainDisputeVote(thirdCaptain.address)
+      )
+      .to.emit(rexForce, "VotingEnded")
+      .withArgs(
+        thirdCaptain.address,
+        VOTE_KIND_DISPUTE,
+        false
+      );
+       captainIndex = await rexForce.addressToCaptain(thirdCaptain.address);
+       captain = await rexForce.captains(captainIndex);
+      await expect(captain[1]).to.equal(true);
+      await expect(captain[6]).to.equal(ethers.utils.parseEther("10000"));
+
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("11000"))
     });
 
-    xit("#2.6 castVote and endCaptainDisputeVote with a negative vote", async () => {
-      // TODO
+    it("#3.4 withdrawLostStake", async () => {
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("11000"))
+      let beforeBal = await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: firstCaptain
+      });
+      beforeBal = ethers.BigNumber.from(beforeBal);
+      // TODO: Create an admin, remove firstCaptain as admin
+      await rexForce.connect(firstCaptain).withdrawLostStake(ethers.utils.parseEther("11000"));
+      let afterBal = await ricx.balanceOf({
+        account: firstCaptain.address,
+        providerOrSigner: firstCaptain
+      });
+      afterBal = ethers.BigNumber.from(afterBal);
+
+      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("11000"),ethers.utils.parseEther("11001"));
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
+
     });
   });
 
-  xcontext("#3 - Manages Bounties", async () => {
-    it("#3.1 create/approveBounty", async () => {
-      // TODO
+  context("#4 - Manages Bounties", async () => {
+
+    before(async function() {
+
+      // Setup Rexforce with 5 captains:
+      rexForce = await App.deploy(
+        ricx.address,
+        "Alice",
+        "alice@alice.com",
+        sf.settings.config.hostAddress,
+        sf.settings.config.cfaV1Address,
+        ""
+      );
+
+      await rexForce.deployed();
+      // Start a stream from admin to rexForce contract (i.e. treasury funds rexforce)
+      let beforeBal = await ricx.balanceOf({
+        account: admin.address,
+        providerOrSigner: admin
+      });
+      await ricx.transfer(rexForce.address, ethers.utils.parseEther("100000"));
+      let transferOperation = ricx.transfer({
+        receiver: rexForce.address,
+        amount: ethers.utils.parseEther("100000")
+      });
+      await transferOperation.exec(admin);
+
+      // Stake the first captain
+      let ricxApproveOperation = ricx.approve({
+        receiver: rexForce.address,
+        amount: CAPTAINS_STAKE_AMOUNT
+      });
+      await ricxApproveOperation.exec(firstCaptain);
+      await rexForce.connect(firstCaptain).modifyCaptainStake();
+
+
+      // Add captains to the contract
+      for(let i = 1; i < captains.length; i++) {
+        // Approve the stake
+        ricxApproveOperation = ricx.approve({
+          receiver: rexForce.address,
+          amount: CAPTAINS_STAKE_AMOUNT
+        });
+        await ricxApproveOperation.exec(captains[i]);
+        // Apply, transfer stake
+        await rexForce.connect(captains[i]).applyForCaptain(`Captain #${i}`, `captain@${i}.com`);
+        // For each captain already added, vote yes
+        for(let j = 0; j < i; j++) {
+          await rexForce.connect(captains[j]).castVote(captains[i].address, true)
+        }
+        // Wait
+        await traveler.advanceTimeAndBlock(VOTING_DURATION);
+        // End the vote to approve the captain
+        rexForce.connect(firstCaptain).endCaptainOnboardingVote(captains[i].address)
+      }
+
+      // Setup RexBounty
+      RexBounty = await ethers.getContractFactory("REXBounty", firstCaptain);
+      rexBounty = await RexBounty.deploy(rexForce.address, ricx.address);
+
+      await ricx.transfer(rexForce.address, ethers.utils.parseEther("100000"));
+      transferOperation = ricx.transfer({
+        receiver: rexBounty.address,
+        amount: ethers.utils.parseEther("100000")
+      });
+      await transferOperation.exec(admin);
+
+
+
     });
 
-    it("#3.2 resetBountyPayee", async () => {
-      // TODO
+    it("#4.1 captain can createBounty", async () => {
+      let ipfsHash = 'https://github.com/Ricochet-Exchange/ricochet-frontend/issues/1';
+      await expect(
+        rexBounty.connect(secondCaptain).createBounty(ethers.utils.parseEther("10000"), ipfsHash)
+      )
+      .to.emit(rexBounty, "BountyCreated")
+      .withArgs(
+        0,
+        secondCaptain.address,
+        ipfsHash
+      );
+
     });
 
-    it("#3.3 approvePayout", async () => {
-      // TODO
+    it("#4.2 captain can approveBounty", async () => {
+
+      await expect(
+        rexBounty.connect(secondCaptain).approveBounty(1)
+      ).to.be.revertedWith("Bounty does not exist");
+
+      await expect(
+        rexBounty.connect(secondCaptain).approveBounty(0)
+      ).to.be.revertedWith("Cannot approve own bounty");
+
+
+      await expect(
+        rexBounty.connect(thirdCaptain).approveBounty(0)
+      )
+      .to.emit(rexBounty, "BountyApproved")
+      .withArgs(
+        0,
+        thirdCaptain.address
+      );
+
     });
+
+
+    it("#4.3 captain can approvePayout", async () => {
+
+      let beforeBal = await ricx.balanceOf({
+        account: fifthCaptain.address,
+        providerOrSigner: admin
+      });
+      beforeBal = ethers.BigNumber.from(beforeBal);
+
+      await expect(
+        rexBounty.connect(secondCaptain).approvePayout(1, fifthCaptain.address)
+      ).to.be.revertedWith("Bounty does not exist");
+
+      // TODO: Test disputed captain can't approve
+
+      await expect(
+        rexBounty.connect(secondCaptain).approvePayout(0, fifthCaptain.address)
+      )
+      .to.emit(rexBounty, "BountyPayoutApproved")
+      .withArgs(
+        0,
+        fifthCaptain.address,
+        true
+      );
+
+
+      let afterBal = await ricx.balanceOf({
+        account: fifthCaptain.address,
+        providerOrSigner: admin
+      });
+      afterBal = ethers.BigNumber.from(afterBal);
+
+      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("10000"),ethers.utils.parseEther("10001"));
+
+    });
+
   });
 
 });

@@ -5,7 +5,6 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControlEnumerable.sol";
-import "../tellor/ITellor.sol";
 import { SuperAppBase } from "@superfluid-finance/ethereum-contracts/contracts/apps/SuperAppBase.sol";
 import { IConstantFlowAgreementV1 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/agreements/IConstantFlowAgreementV1.sol";
 import { ISuperfluid, ISuperToken, SuperAppDefinitions } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
@@ -203,7 +202,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         if (captainsLength % 3 > 0) {
             quorum += 1;
         }
-        
+
         require(currentVote.forSum + currentVote.againstSum >= quorum, "Not enough votes");
 
         if (currentVote.forSum > currentVote.againstSum)
@@ -394,7 +393,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
         uint256 time = block.timestamp;
         _createVote(captainAddress, VOTE_KIND_DISPUTE, time);
 
-        emit VotingStarted(msg.sender, VOTE_KIND_DISPUTE);
+        emit VotingStarted(captainAddress, VOTE_KIND_DISPUTE);
     }
 
     /// @notice End dispute captain vote.
@@ -411,14 +410,12 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
         if (passed) {
             // send RIC back to disputer
-            ricAddress.safeTransferFrom(
-                msg.sender,
+            ricAddress.safeTransfer(
                 currentVote.proposer,
                 captain.disputeStakedAmount
             );
             // Dispute stake returned
             totalStakedAmount -= captain.disputeStakedAmount;
-
             // Captain stake will not be returned
             totalStakedAmount -= captain.stakedAmount;
             totalLostStakeAmount += captain.stakedAmount;
@@ -426,13 +423,14 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
             _revokeRole(CAPTAIN_ROLE, captainAddress);
             captain.approved = false;
             _manageCaptainStream(captainAddress, FLOW_TERMINATE);
+            captain.disputeStakedAmount = 0;
+            captain.stakedAmount = 0;
         } else {
             // Dispute stake will not be returned
             totalStakedAmount -= captain.disputeStakedAmount;
             totalLostStakeAmount += captain.disputeStakedAmount;
         }
 
-        captain.disputeStakedAmount = 0;
         _stopVote(captainAddress);
 
         emit VotingEnded(captainAddress, VOTE_KIND_DISPUTE, passed);
