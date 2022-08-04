@@ -1,30 +1,33 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// When running the script with `npx hardhat run <script>` you'll find the Hardhat
-// Runtime Environment's members available in the global scope.
 import { ethers } from "hardhat";
 
 async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
+    const ricAddress = "0x0000000000000000000000000000000000000000";
+    const name = "Mike";
+    const email = "";
+    const tellor = "";
+    const host = "0x0000000000000000000000000000000000000000";
+    const cfa = "0x0000000000000000000000000000000000000000";
+    const registrationKeyCaptain = "0x0000000000000000000000000000000000000000";
+    const registrationKeyBounty = "0x0000000000000000000000000000000000000000";
 
-  // We get the contract to deploy
-  const Greeter = await ethers.getContractFactory("RexForce");
-  const greeter = await Greeter.deploy();
+    const Captain = await ethers.getContractFactory("RexCaptain");
+    const captain = await Captain.deploy(ricAddress, name, email, host, cfa, registrationKeyCaptain);
 
-  await greeter.deployed();
+    await captain.deployed();
 
-  console.log("RexForce deployed to:", greeter.address);
+    console.log("RexCaptain deployed to:", captain.address);
+
+    const Bounty = await ethers.getContractFactory("RexBounty");
+    const bounty = await Bounty.deploy(captain.address, ricAddress, tellor, host, cfa, registrationKeyBounty);
+
+    await bounty.deployed();
+
+    console.log("RexBounty deployed to:", bounty.address);
 }
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.
 main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
+    console.error(error);
+    process.exitCode = 1;
 });
