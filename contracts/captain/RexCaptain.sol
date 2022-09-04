@@ -43,7 +43,7 @@ contract REXCaptain is AccessControlEnumerable, SuperAppBase {
 
     uint256 public votingDuration = 14 days;
 
-    uint256 public captainAmountToStake = (10 ** 18) * 10000;
+    uint256 public captainAmountToStake = (10 ** 18) * 100000;
 
     uint256 public disputeAmountToStake = (10 ** 18) * 1000;
 
