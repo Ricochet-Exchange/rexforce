@@ -10,9 +10,9 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 const ONE_MONTH_TRAVEL_TIME = 60 * 60 * 24 * 30; // 1 month
 const VOTING_DURATION = 60 * 60 * 24 * 14;
-const CAPTAINS_FLOW_RATE = "317097919837645";
+const CAPTAINS_FLOW_RATE = "3170979198376458";
 const REXFORCE_FLOW_RATE = "31709791983764500";
-const CAPTAINS_STAKE_AMOUNT = ethers.utils.parseEther("10000");
+const CAPTAINS_STAKE_AMOUNT = ethers.utils.parseEther("100000");
 const CAPTAINS_DISPUTE_AMOUNT = ethers.utils.parseEther("1000");
 
 const VOTE_KIND_NONE = 0;
@@ -129,7 +129,7 @@ before(async function () {
     await ric.mint(
       captains[i].address, ethers.utils.parseEther("1000000")
     );
-    // Aprove to upgrade
+    // Approve to upgrade
     await ric.connect(captains[i]).approve(ricx.address, ethers.utils.parseEther("1000000"));
     // Update
     ricxUpgradeOperation = ricx.upgrade({
@@ -222,7 +222,7 @@ describe("REXForce", async function () {
       expect((await ricx.balanceOf({
         account: firstCaptain.address,
         providerOrSigner: admin
-      }))).to.equal(ethers.utils.parseEther("990000"));
+      }))).to.equal(ethers.utils.parseEther("900000"));
 
     });
 
@@ -239,8 +239,8 @@ describe("REXForce", async function () {
       });
       await ricxApproveOperation.exec(secondCaptain);
       await expect(
-          rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
-        )
+        rexForce.connect(secondCaptain).applyForCaptain("Bob", "bob@bob.com")
+      )
         .to.emit(rexForce, "CaptainApplied")
         .withArgs(
           "Bob",
@@ -313,7 +313,7 @@ describe("REXForce", async function () {
       expect((await ricx.balanceOf({
         account: secondCaptain.address,
         providerOrSigner: admin
-      }))).to.equal(ethers.utils.parseEther("990000"));
+      }))).to.equal(ethers.utils.parseEther("900000"));
     });
 
     it("#1.4 castVote and endCaptainOnboardingVote with no vote", async () => {
@@ -455,11 +455,11 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(firstCaptain).resignCaptain()
       )
-      .to.emit(rexForce, "VotingStarted")
-      .withArgs(
-        firstCaptain.address,
-        VOTE_KIND_RESIGN
-      )
+        .to.emit(rexForce, "VotingStarted")
+        .withArgs(
+          firstCaptain.address,
+          VOTE_KIND_RESIGN
+        )
 
       // TODO: More expects?
 
@@ -471,12 +471,12 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(secondCaptain).castVote(firstCaptain.address, true)
       )
-      .to.emit(rexForce, "VoteCast")
-      .withArgs(
-        firstCaptain.address,
-        VOTE_KIND_RESIGN,
-        true
-      );
+        .to.emit(rexForce, "VoteCast")
+        .withArgs(
+          firstCaptain.address,
+          VOTE_KIND_RESIGN,
+          true
+        );
 
       await rexForce.connect(thirdCaptain).castVote(firstCaptain.address, true)
       await rexForce.connect(forthCaptain).castVote(firstCaptain.address, false)
@@ -504,12 +504,12 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(firstCaptain).endCaptainResignVote(firstCaptain.address)
       )
-      .to.emit(rexForce, "VotingEnded")
-      .withArgs(
-        firstCaptain.address,
-        VOTE_KIND_RESIGN,
-        true
-      );
+        .to.emit(rexForce, "VotingEnded")
+        .withArgs(
+          firstCaptain.address,
+          VOTE_KIND_RESIGN,
+          true
+        );
 
       let captainIndex = await rexForce.addressToCaptain(firstCaptain.address);
       let captain = await rexForce.captains(captainIndex);
@@ -525,7 +525,7 @@ describe("REXForce", async function () {
     });
 
     it("#2.3 castVote and endCaptainResignVote with a negative vote", async () => {
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("400000"))
       expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
 
 
@@ -550,12 +550,12 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(secondCaptain).endCaptainResignVote(secondCaptain.address)
       )
-      .to.emit(rexForce, "VotingEnded")
-      .withArgs(
-        secondCaptain.address,
-        VOTE_KIND_RESIGN,
-        false
-      );
+        .to.emit(rexForce, "VotingEnded")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_RESIGN,
+          false
+        );
 
       let captainIndex = await rexForce.addressToCaptain(secondCaptain.address);
       let captain = await rexForce.captains(captainIndex);
@@ -566,8 +566,8 @@ describe("REXForce", async function () {
       //   account: secondCaptain.address,
       //   providerOrSigner: admin
       // }))).to.be.within(ethers.utils.parseEther("990000"), ethers.utils.parseEther("992000"));
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
-      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("10000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("400000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("100000"))
 
 
     });
@@ -634,7 +634,7 @@ describe("REXForce", async function () {
 
     it("#3.1 disputeCaptain", async () => {
       // 5 captains staked initially
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("50000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("500000"))
       expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
       // Dispute secondCaptain
       let beforeDisputeBal = await ricx.balanceOf({
@@ -651,17 +651,17 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(firstCaptain).disputeCaptain(secondCaptain.address)
       )
-      .to.emit(rexForce, "VotingStarted")
-      .withArgs(
-        secondCaptain.address,
-        VOTE_KIND_DISPUTE
-      )
+        .to.emit(rexForce, "VotingStarted")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_DISPUTE
+        )
 
       expect((await ricx.balanceOf({
         account: firstCaptain.address,
         providerOrSigner: admin
       }))).to.be.within(ethers.BigNumber.from(beforeDisputeBal).sub(ethers.utils.parseEther("1001")), ethers.BigNumber.from(beforeDisputeBal).sub(ethers.utils.parseEther("999")));
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("51000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("501000"))
 
       let vote = await rexForce.voteIdToVote(1);
       // TODO: check properties for the vote
@@ -669,18 +669,18 @@ describe("REXForce", async function () {
 
     it("#3.2 castVote and endCaptainDisputeVote with a positive vote", async () => {
 
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("51000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("501000"))
       expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
 
       await expect(
         rexForce.connect(firstCaptain).castVote(secondCaptain.address, true)
       )
-      .to.emit(rexForce, "VoteCast")
-      .withArgs(
-        secondCaptain.address,
-        VOTE_KIND_DISPUTE,
-        true
-      );
+        .to.emit(rexForce, "VoteCast")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_DISPUTE,
+          true
+        );
 
       await rexForce.connect(thirdCaptain).castVote(secondCaptain.address, true)
       await rexForce.connect(forthCaptain).castVote(secondCaptain.address, false)
@@ -700,12 +700,12 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(firstCaptain).endCaptainDisputeVote(secondCaptain.address)
       )
-      .to.emit(rexForce, "VotingEnded")
-      .withArgs(
-        secondCaptain.address,
-        VOTE_KIND_DISPUTE,
-        true
-      );
+        .to.emit(rexForce, "VotingEnded")
+        .withArgs(
+          secondCaptain.address,
+          VOTE_KIND_DISPUTE,
+          true
+        );
       let captainIndex = await rexForce.addressToCaptain(secondCaptain.address);
       let captain = await rexForce.captains(captainIndex);
       await expect(captain[1]).to.equal(false);
@@ -717,14 +717,14 @@ describe("REXForce", async function () {
         'second captain still getting paid'
       );
 
-      // First captian should get stake back and some extra for the time they got a stream
+      // First captain should get stake back and some extra for the time they got a stream
       // expect((await ricx.balanceOf({
       //   account: firstCaptain.address,
       //   providerOrSigner: admin
       // }))).to.be.above(ethers.utils.parseEther("1000000"));
 
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
-      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("10000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("400000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("100000"))
 
 
       // Test withdraw the stake
@@ -737,13 +737,13 @@ describe("REXForce", async function () {
 
     it("#3.3 castVote and endCaptainDisputeVote with a negative vote", async () => {
 
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
-      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("10000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("400000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("100000"))
 
       let captainIndex = await rexForce.addressToCaptain(thirdCaptain.address);
       let captain = await rexForce.captains(captainIndex);
       await expect(captain[1]).to.equal(true);
-      await expect(captain[6]).to.equal(ethers.utils.parseEther("10000"));
+      await expect(captain[6]).to.equal(ethers.utils.parseEther("100000"));
 
 
       // start a dispute
@@ -773,37 +773,37 @@ describe("REXForce", async function () {
       await expect(
         rexForce.connect(firstCaptain).endCaptainDisputeVote(thirdCaptain.address)
       )
-      .to.emit(rexForce, "VotingEnded")
-      .withArgs(
-        thirdCaptain.address,
-        VOTE_KIND_DISPUTE,
-        false
-      );
-       captainIndex = await rexForce.addressToCaptain(thirdCaptain.address);
-       captain = await rexForce.captains(captainIndex);
+        .to.emit(rexForce, "VotingEnded")
+        .withArgs(
+          thirdCaptain.address,
+          VOTE_KIND_DISPUTE,
+          false
+        );
+      captainIndex = await rexForce.addressToCaptain(thirdCaptain.address);
+      captain = await rexForce.captains(captainIndex);
       await expect(captain[1]).to.equal(true);
-      await expect(captain[6]).to.equal(ethers.utils.parseEther("10000"));
+      await expect(captain[6]).to.equal(ethers.utils.parseEther("100000"));
 
-      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("40000"))
-      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("11000"))
+      expect(await rexForce.totalStakedAmount()).to.equal(ethers.utils.parseEther("400000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("101000"))
     });
 
     it("#3.4 withdrawLostStake", async () => {
-      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("11000"))
+      expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("101000"))
       let beforeBal = await ricx.balanceOf({
         account: firstCaptain.address,
         providerOrSigner: firstCaptain
       });
       beforeBal = ethers.BigNumber.from(beforeBal);
       // TODO: Create an admin, remove firstCaptain as admin
-      await rexForce.connect(firstCaptain).withdrawLostStake(ethers.utils.parseEther("11000"));
+      await rexForce.connect(firstCaptain).withdrawLostStake(ethers.utils.parseEther("101000"));
       let afterBal = await ricx.balanceOf({
         account: firstCaptain.address,
         providerOrSigner: firstCaptain
       });
       afterBal = ethers.BigNumber.from(afterBal);
 
-      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("11000"),ethers.utils.parseEther("11001"));
+      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("101000"), ethers.utils.parseEther("101001"));
       expect(await rexForce.totalLostStakeAmount()).to.equal(ethers.utils.parseEther("0"))
 
     });
@@ -885,12 +885,12 @@ describe("REXForce", async function () {
       await expect(
         rexBounty.connect(secondCaptain).createBounty(ethers.utils.parseEther("10000"), ipfsHash)
       )
-      .to.emit(rexBounty, "BountyCreated")
-      .withArgs(
-        0,
-        secondCaptain.address,
-        ipfsHash
-      );
+        .to.emit(rexBounty, "BountyCreated")
+        .withArgs(
+          0,
+          secondCaptain.address,
+          ipfsHash
+        );
 
     });
 
@@ -908,11 +908,11 @@ describe("REXForce", async function () {
       await expect(
         rexBounty.connect(thirdCaptain).approveBounty(0)
       )
-      .to.emit(rexBounty, "BountyApproved")
-      .withArgs(
-        0,
-        thirdCaptain.address
-      );
+        .to.emit(rexBounty, "BountyApproved")
+        .withArgs(
+          0,
+          thirdCaptain.address
+        );
 
     });
 
@@ -934,12 +934,12 @@ describe("REXForce", async function () {
       await expect(
         rexBounty.connect(secondCaptain).approvePayout(0, fifthCaptain.address)
       )
-      .to.emit(rexBounty, "BountyPayoutApproved")
-      .withArgs(
-        0,
-        fifthCaptain.address,
-        true
-      );
+        .to.emit(rexBounty, "BountyPayoutApproved")
+        .withArgs(
+          0,
+          fifthCaptain.address,
+          true
+        );
 
 
       let afterBal = await ricx.balanceOf({
@@ -948,7 +948,7 @@ describe("REXForce", async function () {
       });
       afterBal = ethers.BigNumber.from(afterBal);
 
-      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("10000"),ethers.utils.parseEther("10001"));
+      expect(await afterBal.sub(beforeBal)).to.be.within(ethers.utils.parseEther("10000"), ethers.utils.parseEther("10001"));
 
     });
 
